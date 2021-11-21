@@ -1,6 +1,6 @@
 /*
  * class	: Operating System(MS)
- * Project 01	: First-In First-Out Scheduling Simulation
+ * Project 01	: Round Robin Scheduling Simulation
  * Author	: jaeil Park, junseok Tak
  * Student ID	: 32161786, 32164809
  * Date		: 2021-11-16
@@ -23,6 +23,7 @@
 
 #define MAX_PROCESS 10
 #define TIME_TICK 10000// 0.01 second(10ms).
+#define TIME_QUANTUM 5// 0.03 seconds(30ms).
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -56,13 +57,12 @@ void initList(List* list);
 void pushBackNode(List* list, int procNum, int cpuTime, int ioTime);
 void popFrontNode(List* list, Node* runNode);
 bool isEmptyList(List* list);
-void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp);
 void Delnode(List* list);
 
+void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp);
 void signal_timeTick(int signo);
-void signal_FIFOcpuSchedOut(int signo);
+void signal_RRcpuSchedOut(int signo);
 void signal_ioSchedIn(int signo);
-
 void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime);
 void pmsgRcv(int curProc, Node* nodePtr);
 
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
 	memset(&io, 0, sizeof(io));
 
 	tick.sa_handler = &signal_timeTick;
-	cpu.sa_handler = &signal_FIFOcpuSchedOut;
+	cpu.sa_handler = &signal_RRcpuSchedOut;
 	io.sa_handler = &signal_ioSchedIn;
 
 	sigaction(SIGALRM, &tick, NULL);
@@ -131,7 +131,7 @@ int main(int argc, char* argv[]) {
 	initList(readyQueue);
 	initList(subReadyQueue);
 
-	wfp = fopen("FIFO_schedule_dump.txt", "w");
+	wfp = fopen("RR_schedule_dump.txt", "w");
 	if (wfp == NULL) {
 		perror("file open error");
 		exit(EXIT_FAILURE);
@@ -179,7 +179,7 @@ int main(int argc, char* argv[]) {
 		RUN_TIME = RUN_TIME * 1000000 / TIME_TICK;
 	}
 	printf("\x1b[33m");
-	printf("TICK   PROC NUMBER   REMAINED CPU TIME\n");
+	printf("TIME TICK   PROC NUMBER   REMAINED CPU TIME\n");
 	printf("\x1b[0m");
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -188,13 +188,13 @@ int main(int argc, char* argv[]) {
 		// create child process.
 		int ret = fork();
 
-		// parent process.
+		// parent process part.
 		if (ret > 0) {
 			CPID[outerLoopIndex] = ret;
 			pushBackNode(readyQueue, outerLoopIndex, originCpuBurstTime[outerLoopIndex], originIoBurstTime[outerLoopIndex]);
 		}
 
-		// child process.
+		// child process part.
 		else {
 			int RANDOM = 1;
 			int procNum = outerLoopIndex;
@@ -212,11 +212,12 @@ int main(int argc, char* argv[]) {
 
 				// cpu task is over.
 				if (cpuBurstTime == 0) {
-					cpuBurstTime = originCpuBurstTime[procNum + (RANDOM*10)];// set the next cpu burst time.
-
+					cpuBurstTime = originCpuBurstTime[procNum + (RANDOM * 10)];// set the next cpu burst time.
+					
 					// send the data of child process to parent process.
 					cmsgSnd(KEY[procNum], cpuBurstTime, ioBurstTime);
-					ioBurstTime = originIoBurstTime[procNum * RANDOM];// set the next io burst time.
+					ioBurstTime = originIoBurstTime[procNum + (RANDOM * 10)];// set the next io burst time.
+
 					RANDOM++;
 					if (RANDOM > 298)
 					{
@@ -234,27 +235,27 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// get the first node from ready Queue.
+	// get the first node from ready queue.
 	popFrontNode(readyQueue, cpuRunNode);
 	setitimer(ITIMER_REAL, &new_itimer, &old_itimer);
 
-	// parent process excutes until run time is over.
+	// parent process excutes until the run time is over.
 	while (RUN_TIME != 0);
-
+	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
 	// remove message queues and terminate child processes.
 	for (int innerLoopIndex = 0; innerLoopIndex < MAX_PROCESS; innerLoopIndex++) {
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 		kill(CPID[innerLoopIndex], SIGKILL);
 	}
-	
+
 	// free dynamic memory allocation.
 	Delnode(readyQueue);
 	Delnode(subReadyQueue);
 	Delnode(waitQueue);
-
 	free(readyQueue);
 	free(subReadyQueue);
 	free(waitQueue);
+
 	free(cpuRunNode);
 	free(ioRunNode);
 	return 0;
@@ -272,6 +273,7 @@ int main(int argc, char* argv[]) {
 * return: none.
 */
 void signal_timeTick(int signo) {
+	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
 	CONST_TICK_COUNT++;
 	printf("%05d       PROC NUMBER   REMAINED CPU TIME\n", CONST_TICK_COUNT);
 
@@ -304,22 +306,32 @@ void signal_timeTick(int signo) {
 		kill(CPID[cpuRunNode->procNum], SIGCONT);
 	}
 
-	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
+
 	RUN_TIME--;// run time decreased by 1.
 	return;
 }
 
 /*
-* void signal_FIFOcpuSchedOut(int signo);
-*   This function counts the time tick.
+* void signal_RRcpuSchedOut(int signo);
+*   This function pushes the current cpu preemptive process to the end of the ready queue,
+*	and pop the next process from the ready queue to excute cpu task.
 *
 * parameter: int
 *	signo:
 *
 * return: none.
 */
-void signal_FIFOcpuSchedOut(int signo) {
+void signal_RRcpuSchedOut(int signo) {
 	TICK_COUNT++;
+
+	// scheduler changes cpu preemptive process at every time quantum.
+	if (TICK_COUNT >= TIME_QUANTUM) {
+		pushBackNode(readyQueue, cpuRunNode->procNum, cpuRunNode->cpuTime, cpuRunNode->ioTime);
+
+		// pop the next process from the ready queue.
+		popFrontNode(readyQueue, cpuRunNode);
+		TICK_COUNT = 0;
+	}
 	return;
 }
 
@@ -337,13 +349,16 @@ void signal_FIFOcpuSchedOut(int signo) {
 void signal_ioSchedIn(int signo) {
 	pmsgRcv(cpuRunNode->procNum, cpuRunNode);
 
+	// process that has no io task go to the end of the ready queue.
 	if (cpuRunNode->ioTime == 0) {
 		pushBackNode(readyQueue, cpuRunNode->procNum, cpuRunNode->cpuTime, cpuRunNode->ioTime);
 	}
+	// process that has io task go to the end of the wait queue.
 	else {
 		pushBackNode(waitQueue, cpuRunNode->procNum, cpuRunNode->cpuTime, cpuRunNode->ioTime);
 	}
 
+	// pop the next process from the ready queue.
 	popFrontNode(readyQueue, cpuRunNode);
 	TICK_COUNT = 0;
 	return;
@@ -463,14 +478,14 @@ void Delnode(List* list) {
 		delnode = list->head;
 		list->head = list->head->next;
 		free(delnode);
-		printf("delete  node\n");
+		//printf("delete  node\n");
 	}
 }
 
 /*
 * void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime)
 *   This function is a function in which the child process puts data in the msg structure and sends it to the message queue.
-*
+* 
 * parameter: int, int, int
 *	key: the key value of message queue.
 *	cpuBurstTime: child process's cpu burst time.
@@ -503,7 +518,7 @@ void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime) {
 *
 * parameter: int, Node*
 *	procNum: the index of current cpu or io running process.
-*	nodePtr:
+*	nodePtr: 
 *
 * return: none.
 */
@@ -543,7 +558,7 @@ void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp) {
 	Node* nodePtr1 = readyQueue->head;
 	Node* nodePtr2 = waitQueue->head;
 
-	wfp = fopen("FIFO_schedule_dump.txt", "a+");// open stream file append+ mode.
+	wfp = fopen("RR_schedule_dump.txt", "a+");// open stream file append+ mode.
 	fprintf(wfp, "───────────────────────────────────────────────────────\n");
 	fprintf(wfp, " TICK   %04d\n\n", CONST_TICK_COUNT);
 	fprintf(wfp, " RUNNING PROCESS\n");
