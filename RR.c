@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
+#include <malloc.h>
 
 #define MAX_PROCESS 10
 #define TIME_TICK 10000// 0.01 second(10ms).
@@ -41,16 +42,27 @@ typedef struct List {
 	int listNum;
 } List;
 
-struct data {
+struct data_iocpu {
+	int pid;
+	int cpuTime;
+	int ioTime;
+};
+
+struct data_memaccess {
 	int pid;
 	int cpuTime;
 	int ioTime;
 };
 
 // message buffer that contains child process's data.
-struct msgbuf {
+struct msgbuf_iocpu {
 	long mtype;
-	struct data mdata;
+	struct data_iocpu mdata;
+};
+
+struct msgbuf_memaccess {
+	long mtype;
+	struct data_memaccess mdata;
 };
 
 void initList(List* list);
@@ -63,8 +75,8 @@ void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp);
 void signal_timeTick(int signo);
 void signal_RRcpuSchedOut(int signo);
 void signal_ioSchedIn(int signo);
-void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime);
-void pmsgRcv(int curProc, Node* nodePtr);
+void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime);
+void pmsgRcv_iocpu(int curProc, Node* nodePtr);
 
 List* waitQueue;
 List* readyQueue;
@@ -86,6 +98,20 @@ int main(int argc, char* argv[]) {
 	int originCpuBurstTime[3000];
 	int originIoBurstTime[3000];
 	int ppid = getpid();// get parent process id.
+
+	int* Memory = (int*)malloc(sizeof(int) * 0x280000);			//10MB 0xA0:0000 = 4byte * 0x29:0000
+	int* TableAdr[10];											//Empty Page Adr
+
+	//------------------------------Memory Alloc Test---------------------------------
+	TableAdr[0] = (int*)malloc((int)sizeof(int) * 15);							//int*의 배열선언
+	TableAdr[1] = (int*)malloc((int)sizeof(int) * 10);
+
+	printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));	//heap메모리 크기 출력 (원래보다 조금 클 수 있다고함)
+	printf("memory test : %d bytes\n",(int)malloc_usable_size(TableAdr[1]));
+
+	TableAdr[0] = realloc(TableAdr[0], sizeof(int) * 40);						//메모리 확장
+	printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));
+	//--------------------------------------------------------------------------------
 
 	struct itimerval new_itimer;
 	struct itimerval old_itimer;
@@ -215,7 +241,7 @@ int main(int argc, char* argv[]) {
 					cpuBurstTime = originCpuBurstTime[procNum + (RANDOM * 10)];// set the next cpu burst time.
 					
 					// send the data of child process to parent process.
-					cmsgSnd(KEY[procNum], cpuBurstTime, ioBurstTime);
+					cmsgSnd_iocpu(KEY[procNum], cpuBurstTime, ioBurstTime);
 					ioBurstTime = originIoBurstTime[procNum + (RANDOM * 10)];// set the next io burst time.
 
 					RANDOM++;
@@ -347,7 +373,7 @@ void signal_RRcpuSchedOut(int signo) {
 * return: none.
 */
 void signal_ioSchedIn(int signo) {
-	pmsgRcv(cpuRunNode->procNum, cpuRunNode);
+	pmsgRcv_iocpu(cpuRunNode->procNum, cpuRunNode);
 
 	// process that has no io task go to the end of the ready queue.
 	if (cpuRunNode->ioTime == 0) {
@@ -493,10 +519,10 @@ void Delnode(List* list) {
 *
 * return: none.
 */
-void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime) {
+void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 	int qid = msgget(key, IPC_CREAT | 0666);// create message queue ID.
 
-	struct msgbuf msg;
+	struct msgbuf_iocpu msg;
 	memset(&msg, 0, sizeof(msg));
 
 	msg.mtype = 1;
@@ -505,12 +531,32 @@ void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime) {
 	msg.mdata.ioTime = ioBurstTime;// child process io burst time.
 
 	// child process sends its data to parent process.
-	if (msgsnd(qid, (void*)&msg, sizeof(struct data), 0) == -1) {
+	if (msgsnd(qid, (void*)&msg, sizeof(struct data_iocpu), 0) == -1) {
 		perror("child msgsnd error");
 		exit(EXIT_FAILURE);
 	}
 	return;
 }
+
+void cmsgSnd_memaccess(int key, int cpuBurstTime, int ioBurstTime) {
+	int qid = msgget(key, IPC_CREAT | 0666);// create message queue ID.
+
+	struct msgbuf_iocpu msg;
+	memset(&msg, 0, sizeof(msg));
+
+	msg.mtype = 1;
+	msg.mdata.pid = getpid();
+	msg.mdata.cpuTime = cpuBurstTime;// child process cpu burst time.
+	msg.mdata.ioTime = ioBurstTime;// child process io burst time.
+
+	// child process sends its data to parent process.
+	if (msgsnd(qid, (void*)&msg, sizeof(struct data_iocpu), 0) == -1) {
+		perror("child msgsnd error");
+		exit(EXIT_FAILURE);
+	}
+	return;
+}
+
 
 /*
 * void pmsgRcv(int procNum, Node* nodePtr);
@@ -522,11 +568,31 @@ void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime) {
 *
 * return: none.
 */
-void pmsgRcv(int procNum, Node* nodePtr) {
+void pmsgRcv_iocpu(int procNum, Node* nodePtr) {
 	int key = 0x3216 * (procNum + 1);// create message queue key.
 	int qid = msgget(key, IPC_CREAT | 0666);
 
-	struct msgbuf msg;
+	struct msgbuf_iocpu msg;
+	memset(&msg, 0, sizeof(msg));
+
+	// parent process receives child process data.
+	if (msgrcv(qid, (void*)&msg, sizeof(msg), 0, 0) == -1) {
+		perror("msgrcv error");
+		exit(1);
+	}
+
+	// copy the data of child process to nodePtr.
+	nodePtr->pid = msg.mdata.pid;
+	nodePtr->cpuTime = msg.mdata.cpuTime;
+	nodePtr->ioTime = msg.mdata.ioTime;
+	return;
+}
+
+void pmsgRcv_memaccess(int procNum, Node* nodePtr) {
+	int key = 0x3216 * (procNum + 1);// create message queue key.
+	int qid = msgget(key, IPC_CREAT | 0666);
+
+	struct msgbuf_iocpu msg;
 	memset(&msg, 0, sizeof(msg));
 
 	// parent process receives child process data.
