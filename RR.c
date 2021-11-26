@@ -42,11 +42,15 @@ typedef struct NodeList {
 	int ListSize;
 } NodeList;
 
-typedef struct Table {
+typedef struct Table Table;
+
+struct Table {
 	int* ValidBit;
 	int* SwapBit;
+	int LV2occupyBit;
 	int** Adr;
-} Table;
+	Table* TbAdr;
+};
 
 struct data_iocpu {
 	int pid;
@@ -86,6 +90,8 @@ void pmsgRcv_iocpu(int curProc, Node* nodePtr);
 //Project 2 Code
 void cmsgSnd_memaccess(int procNum, int* VAadr);
 void pmsgRcv_memaccess(int procNum, int* VAbuffer);
+int FindFreeLV2(Table* LV2Table);
+int FindFreeFrame(char* FreeFrameList, int* FreeFramListSize);
 
 NodeList* waitQueue;
 NodeList* readyQueue;
@@ -105,6 +111,8 @@ int RUN_TIME;
 int* Memory;
 char* FreeFrameList;
 int FreeFrameListSize;
+Table* LV1Table;
+Table* LV2Table;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -119,14 +127,14 @@ int main(int argc, char* argv[]) {
 	FreeFrameListSize = 0x4000;										//# of left Free page frame
 	memset(FreeFrameList, 0, malloc_usable_size(FreeFrameList));	//empty = 0, full = 1;
 
-	Table* LV1Table = (Table*)malloc(sizeof(Table) * 0xA);			//LV1 Table = 10
-	Table* LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	//LV2 Table = 10 * 2^12
+	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);			//LV1 Table = 10
+	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	//LV2 Table = 10 * 2^12
 
 	for (int i = 0; i < 10; i++) {									//LV1 Table Setting
-		LV1Table[i].Adr = malloc(sizeof(int) * 0x40);
+		LV1Table[i].TbAdr = malloc(sizeof(int) * 0x40);
 		LV1Table[i].ValidBit = malloc(sizeof(int) * 0x40);
 		for (int t = 0; t < 0x40; t++) {							//LV1 Table Variable Setting
-			LV1Table[i].Adr[t] = NULL;
+			LV1Table[i].TbAdr = NULL;
 			LV1Table[i].ValidBit[t] = 0;
 		}
 	}
@@ -134,6 +142,7 @@ int main(int argc, char* argv[]) {
 		LV2Table[i].Adr = malloc(sizeof(int) * 0x40);
 		LV2Table[i].SwapBit = malloc(sizeof(int) * 0x40);
 		LV2Table[i].ValidBit = malloc(sizeof(int) * 0x40);
+		LV2Table[i].LV2occupyBit = 0;
 		for (int t = 0; t < 0x40; t++) {							//LV2 Table Variable Setting
 			LV2Table[i].Adr[t] = NULL;
 			LV2Table[i].ValidBit[t] = 0;
@@ -721,4 +730,64 @@ int MMU(int VAadr) {
 	int PAadr;
 
 
+}
+
+int MemAccess(int* VAadr, int procNum) {
+	int VAadrbuffer;
+	int LV1buffer;
+	int LV2buffer;
+	int Offsetbuffer;
+	int LV2num;
+	int FreeFramenum;
+	for (int i = 0; i < 10; i++) {
+		if (FreeFrameListSize == 0) {					//Swapping
+
+		}
+		VAadrbuffer = VAadr[i];
+		LV1buffer = (VAadrbuffer >> 16) & 0x3F;
+		LV2buffer = (VAadrbuffer >> 10) & 0x3F;
+		Offsetbuffer = VAadrbuffer & 0x3FF;
+		
+		if (LV1Table[procNum].ValidBit[LV1buffer] == 0) {
+			printf("LV1 Page fault\n");
+			LV2num = FindFreeLV2(LV2Table);
+			LV1Table[procNum].ValidBit[LV1buffer] = 1;
+			LV1Table[procNum].TbAdr = LV2Table+LV2num;
+		}
+		LV2num = LV1Table[procNum].TbAdr - LV2Table;
+		if (LV2Table[LV2num].ValidBit[LV2buffer] == 0) {
+			printf("LV2 Page fault\n");
+			FreeFramenum = FindFreeFrame(FreeFrameList, &FreeFrameListSize);
+			LV2Table[LV2num].ValidBit[LV2buffer] = 1;
+			LV2Table[LV2num].Adr[LV2buffer] = Memory+((FreeFramenum*0x400)/4);
+		}
+		Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4] = 1;			//temp value input
+	}
+}
+
+int FindFreeLV2(Table* LV2Table) {
+	int LV2num = 0;
+	while(1) {
+		if (LV2Table[LV2num].LV2occupyBit == 0) {
+			LV2Table[LV2num].LV2occupyBit = 1;
+			break;
+		}
+		LV2num++;
+	}
+	return LV2num;
+}
+
+int FindFreeFrame(char* List, int* Size) {
+	int FreeFramenum = 0;
+	char* FreeList = List;
+	int* FreeFrameSize = Size;
+	while (1) {
+		if (FreeList[FreeFramenum] == 0) {
+			*(FreeFrameSize) = *(FreeFrameSize) - 1;
+			FreeList[FreeFramenum] = 1;
+			break;
+		}
+		FreeFramenum++;
+	}
+	return FreeFramenum;
 }
