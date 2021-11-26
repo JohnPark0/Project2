@@ -26,7 +26,7 @@
 #define TIME_TICK 10000// 0.01 second(10ms).
 #define TIME_QUANTUM 5// 0.03 seconds(30ms).
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
+ //////////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct Node {
 	struct Node* next;
@@ -36,11 +36,17 @@ typedef struct Node {
 	int ioTime;
 } Node;
 
-typedef struct List {
+typedef struct NodeList {
 	Node* head;
 	Node* tail;
-	int listNum;
-} List;
+	int ListSize;
+} NodeList;
+
+typedef struct Table {
+	int* ValidBit;
+	int* SwapBit;
+	int** Adr;
+} Table;
 
 struct data_iocpu {
 	int pid;
@@ -49,9 +55,8 @@ struct data_iocpu {
 };
 
 struct data_memaccess {
-	int pid;
-	int cpuTime;
-	int ioTime;
+	int VAadr[10];
+	//int procNum;
 };
 
 // message buffer that contains child process's data.
@@ -65,22 +70,26 @@ struct msgbuf_memaccess {
 	struct data_memaccess mdata;
 };
 
-void initList(List* list);
-void pushBackNode(List* list, int procNum, int cpuTime, int ioTime);
-void popFrontNode(List* list, Node* runNode);
-bool isEmptyList(List* list);
-void Delnode(List* list);
+void InitNodeList(NodeList* list);
+void pushBackNode(NodeList* list, int procNum, int cpuTime, int ioTime);
+void popFrontNode(NodeList* list, Node* runNode);
+bool isEmptyList(NodeList* list);
+void Delnode(NodeList* list);
 
-void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp);
+void writeNode(NodeList* readyQueue, NodeList* waitQueue, Node* cpuRunNode, FILE* wfp);
 void signal_timeTick(int signo);
 void signal_RRcpuSchedOut(int signo);
 void signal_ioSchedIn(int signo);
 void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime);
 void pmsgRcv_iocpu(int curProc, Node* nodePtr);
 
-List* waitQueue;
-List* readyQueue;
-List* subReadyQueue;
+//Project 2 Code
+void cmsgSnd_memaccess(int procNum, int* VAadr);
+void pmsgRcv_memaccess(int procNum, int* VAbuffer);
+
+NodeList* waitQueue;
+NodeList* readyQueue;
+NodeList* subReadyQueue;
 Node* cpuRunNode;
 Node* ioRunNode;
 FILE* rfp;
@@ -92,6 +101,11 @@ int CONST_TICK_COUNT;
 int TICK_COUNT;
 int RUN_TIME;
 
+//Project 2 Code
+int* Memory;
+char* FreeFrameList;
+int FreeFrameListSize;
+
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[]) {
@@ -99,18 +113,43 @@ int main(int argc, char* argv[]) {
 	int originIoBurstTime[3000];
 	int ppid = getpid();// get parent process id.
 
-	int* Memory = (int*)malloc(sizeof(int) * 0x280000);			//10MB 0xA0:0000 = 4byte * 0x29:0000
-	int* TableAdr[10];											//Empty Page Adr
+	//Project 2 Code
+	Memory = (int*)malloc(sizeof(int) * 0x400000);					//16MB = 32bits(4byte) * 0x40:0000
+	FreeFrameList = malloc(sizeof(int) * 0x1000);					//Free page frame list : 16MB = 1KB * 32bits(4byte) * 0x1000
+	FreeFrameListSize = 0x4000;										//# of left Free page frame
+	memset(FreeFrameList, 0, malloc_usable_size(FreeFrameList));	//empty = 0, full = 1;
+
+	Table* LV1Table = (Table*)malloc(sizeof(Table) * 0xA);			//LV1 Table = 10
+	Table* LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	//LV2 Table = 10 * 2^12
+
+	for (int i = 0; i < 10; i++) {									//LV1 Table Setting
+		LV1Table[i].Adr = malloc(sizeof(int) * 0x40);
+		LV1Table[i].ValidBit = malloc(sizeof(int) * 0x40);
+		for (int t = 0; t < 0x40; t++) {							//LV1 Table Variable Setting
+			LV1Table[i].Adr[t] = NULL;
+			LV1Table[i].ValidBit[t] = 0;
+		}
+	}
+	for (int i = 0; i < 0xA000; i++) {								//LV2 Table Setting
+		LV2Table[i].Adr = malloc(sizeof(int) * 0x40);
+		LV2Table[i].SwapBit = malloc(sizeof(int) * 0x40);
+		LV2Table[i].ValidBit = malloc(sizeof(int) * 0x40);
+		for (int t = 0; t < 0x40; t++) {							//LV2 Table Variable Setting
+			LV2Table[i].Adr[t] = NULL;
+			LV2Table[i].ValidBit[t] = 0;
+			LV2Table[i].SwapBit[t] = 0;
+		}
+	}
 
 	//------------------------------Memory Alloc Test---------------------------------
-	TableAdr[0] = (int*)malloc((int)sizeof(int) * 15);							//int*의 배열선언
-	TableAdr[1] = (int*)malloc((int)sizeof(int) * 10);
+	//TableAdr[0] = (int*)malloc((int)sizeof(int) * 15);							//int*의 배열선언
+	//TableAdr[1] = (int*)malloc((int)sizeof(int) * 10);
 
-	printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));	//heap메모리 크기 출력 (원래보다 조금 클 수 있다고함)
-	printf("memory test : %d bytes\n",(int)malloc_usable_size(TableAdr[1]));
+	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));	//heap메모리 크기 출력 (원래보다 조금 클 수 있다고함)
+	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[1]));
 
-	TableAdr[0] = realloc(TableAdr[0], sizeof(int) * 40);						//메모리 확장
-	printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));
+	//TableAdr[0] = realloc(TableAdr[0], sizeof(int) * 40);						//메모리 확장
+	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));
 	//--------------------------------------------------------------------------------
 
 	struct itimerval new_itimer;
@@ -137,9 +176,9 @@ int main(int argc, char* argv[]) {
 	sigaction(SIGUSR1, &cpu, NULL);
 	sigaction(SIGUSR2, &io, NULL);
 
-	waitQueue = malloc(sizeof(List));
-	readyQueue = malloc(sizeof(List));
-	subReadyQueue = malloc(sizeof(List));
+	waitQueue = malloc(sizeof(NodeList));
+	readyQueue = malloc(sizeof(NodeList));
+	subReadyQueue = malloc(sizeof(NodeList));
 	cpuRunNode = malloc(sizeof(Node));
 	ioRunNode = malloc(sizeof(Node));
 
@@ -153,9 +192,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	// initialize ready, sub-ready, wait queues.
-	initList(waitQueue);
-	initList(readyQueue);
-	initList(subReadyQueue);
+	InitNodeList(waitQueue);
+	InitNodeList(readyQueue);
+	InitNodeList(subReadyQueue);
 
 	wfp = fopen("RR_schedule_dump.txt", "w");
 	if (wfp == NULL) {
@@ -222,7 +261,7 @@ int main(int argc, char* argv[]) {
 
 		// child process part.
 		else {
-			int RANDOM = 1;
+			int BurstCycle = 1;
 			int procNum = outerLoopIndex;
 			int cpuBurstTime = originCpuBurstTime[procNum];
 			int ioBurstTime = originIoBurstTime[procNum];
@@ -238,16 +277,16 @@ int main(int argc, char* argv[]) {
 
 				// cpu task is over.
 				if (cpuBurstTime == 0) {
-					cpuBurstTime = originCpuBurstTime[procNum + (RANDOM * 10)];// set the next cpu burst time.
-					
+					cpuBurstTime = originCpuBurstTime[procNum + (BurstCycle * 10)];// set the next cpu burst time.
+
 					// send the data of child process to parent process.
 					cmsgSnd_iocpu(KEY[procNum], cpuBurstTime, ioBurstTime);
-					ioBurstTime = originIoBurstTime[procNum + (RANDOM * 10)];// set the next io burst time.
+					ioBurstTime = originIoBurstTime[procNum + (BurstCycle * 10)];// set the next io burst time.
 
-					RANDOM++;
-					if (RANDOM > 298)
+					BurstCycle++;
+					if (BurstCycle > 298)
 					{
-						RANDOM = 1;
+						BurstCycle = 1;
 					}
 					kill(ppid, SIGUSR2);
 				}
@@ -284,6 +323,18 @@ int main(int argc, char* argv[]) {
 
 	free(cpuRunNode);
 	free(ioRunNode);
+
+	for (int i = 0; i < 10; i++) {
+		free(LV1Table[i].Adr);
+		free(LV1Table[i].ValidBit);
+	}
+	for (int i = 0; i < 0xA000; i++) {
+		free(LV2Table[i].Adr);
+		free(LV2Table[i].SwapBit);
+		free(LV2Table[i].ValidBit);
+	}
+	free(LV1Table);
+	free(LV2Table);
 	return 0;
 }
 
@@ -298,8 +349,8 @@ int main(int argc, char* argv[]) {
 *
 * return: none.
 */
-void signal_timeTick(int signo) {
-	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
+void signal_timeTick(int signo) {								//SIGALRM
+	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);			// write ready, wait queue dump to txt file.
 	CONST_TICK_COUNT++;
 	printf("%05d       PROC NUMBER   REMAINED CPU TIME\n", CONST_TICK_COUNT);
 
@@ -347,8 +398,12 @@ void signal_timeTick(int signo) {
 *
 * return: none.
 */
-void signal_RRcpuSchedOut(int signo) {
+void signal_RRcpuSchedOut(int signo) {							//SIGUSR1
+	int VAbuffer[10];
 	TICK_COUNT++;
+
+	//Memory Process
+	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
 
 	// scheduler changes cpu preemptive process at every time quantum.
 	if (TICK_COUNT >= TIME_QUANTUM) {
@@ -372,8 +427,12 @@ void signal_RRcpuSchedOut(int signo) {
 *
 * return: none.
 */
-void signal_ioSchedIn(int signo) {
+void signal_ioSchedIn(int signo) {								//SIGUSR2
+	int VAbuffer[10];
 	pmsgRcv_iocpu(cpuRunNode->procNum, cpuRunNode);
+
+	//Memory Process
+	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
 
 	// process that has no io task go to the end of the ready queue.
 	if (cpuRunNode->ioTime == 0) {
@@ -401,10 +460,10 @@ void signal_ioSchedIn(int signo) {
 *
 * return: none.
 */
-void initList(List* list) {
+void InitNodeList(NodeList* list) {
 	list->head = NULL;
 	list->tail = NULL;
-	list->listNum = 0;
+	list->ListSize = 0;
 	return;
 }
 
@@ -420,7 +479,7 @@ void initList(List* list) {
 *
 * return: none.
 */
-void pushBackNode(List* list, int procNum, int cpuTime, int ioTime) {
+void pushBackNode(NodeList* list, int procNum, int cpuTime, int ioTime) {
 	Node* newNode = (Node*)malloc(sizeof(Node));
 	if (newNode == NULL) {
 		perror("push node malloc error");
@@ -455,7 +514,7 @@ void pushBackNode(List* list, int procNum, int cpuTime, int ioTime) {
 *
 * return: none.
 */
-void popFrontNode(List* list, Node* runNode) {
+void popFrontNode(NodeList* list, Node* runNode) {
 	Node* oldNode = list->head;
 
 	// empty list case.
@@ -491,14 +550,14 @@ void popFrontNode(List* list, Node* runNode) {
 *	true: the list is empty.
 *	false: the list is not empty.
 */
-bool isEmptyList(List* list) {
+bool isEmptyList(NodeList* list) {
 	if (list->head == NULL)
 		return true;
 	else
 		return false;
 }
 
-void Delnode(List* list) {
+void Delnode(NodeList* list) {
 	while (isEmptyList(list) == false) {
 		Node* delnode;
 		delnode = list->head;
@@ -511,7 +570,7 @@ void Delnode(List* list) {
 /*
 * void cmsgSnd(int key, int cpuBurstTime, int ioBurstTime)
 *   This function is a function in which the child process puts data in the msg structure and sends it to the message queue.
-* 
+*
 * parameter: int, int, int
 *	key: the key value of message queue.
 *	cpuBurstTime: child process's cpu burst time.
@@ -526,7 +585,7 @@ void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 	memset(&msg, 0, sizeof(msg));
 
 	msg.mtype = 1;
-	msg.mdata.pid = getpid();
+	//msg.mdata.pid = getpid();
 	msg.mdata.cpuTime = cpuBurstTime;// child process cpu burst time.
 	msg.mdata.ioTime = ioBurstTime;// child process io burst time.
 
@@ -538,16 +597,20 @@ void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 	return;
 }
 
-void cmsgSnd_memaccess(int key, int cpuBurstTime, int ioBurstTime) {
+void cmsgSnd_memaccess(int procNum, int* VAadr) {
+	int key = 0x3216* (procNum + 1);
 	int qid = msgget(key, IPC_CREAT | 0666);// create message queue ID.
 
-	struct msgbuf_iocpu msg;
+	struct msgbuf_memaccess msg;
 	memset(&msg, 0, sizeof(msg));
 
 	msg.mtype = 1;
-	msg.mdata.pid = getpid();
-	msg.mdata.cpuTime = cpuBurstTime;// child process cpu burst time.
-	msg.mdata.ioTime = ioBurstTime;// child process io burst time.
+	//msg.mdata.procNum = procNum;
+
+	//Memory Access Adr
+	for (int i = 0; i < 10; i++) {
+		msg.mdata.VAadr[i] = VAadr[i];
+	}
 
 	// child process sends its data to parent process.
 	if (msgsnd(qid, (void*)&msg, sizeof(struct data_iocpu), 0) == -1) {
@@ -556,7 +619,6 @@ void cmsgSnd_memaccess(int key, int cpuBurstTime, int ioBurstTime) {
 	}
 	return;
 }
-
 
 /*
 * void pmsgRcv(int procNum, Node* nodePtr);
@@ -564,7 +626,7 @@ void cmsgSnd_memaccess(int key, int cpuBurstTime, int ioBurstTime) {
 *
 * parameter: int, Node*
 *	procNum: the index of current cpu or io running process.
-*	nodePtr: 
+*	nodePtr:
 *
 * return: none.
 */
@@ -582,17 +644,17 @@ void pmsgRcv_iocpu(int procNum, Node* nodePtr) {
 	}
 
 	// copy the data of child process to nodePtr.
-	nodePtr->pid = msg.mdata.pid;
+	//nodePtr->pid = msg.mdata.pid;
 	nodePtr->cpuTime = msg.mdata.cpuTime;
 	nodePtr->ioTime = msg.mdata.ioTime;
 	return;
 }
 
-void pmsgRcv_memaccess(int procNum, Node* nodePtr) {
+void pmsgRcv_memaccess(int procNum, int* VAbuffer) {
 	int key = 0x3216 * (procNum + 1);// create message queue key.
 	int qid = msgget(key, IPC_CREAT | 0666);
 
-	struct msgbuf_iocpu msg;
+	struct msgbuf_memaccess msg;
 	memset(&msg, 0, sizeof(msg));
 
 	// parent process receives child process data.
@@ -602,9 +664,10 @@ void pmsgRcv_memaccess(int procNum, Node* nodePtr) {
 	}
 
 	// copy the data of child process to nodePtr.
-	nodePtr->pid = msg.mdata.pid;
-	nodePtr->cpuTime = msg.mdata.cpuTime;
-	nodePtr->ioTime = msg.mdata.ioTime;
+	for (int i = 0; i < 10; i++) {
+		VAbuffer[i] = msg.mdata.VAadr[i];
+	}
+
 	return;
 }
 
@@ -620,7 +683,7 @@ void pmsgRcv_memaccess(int procNum, Node* nodePtr) {
 *
 * return: none.
 */
-void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp) {
+void writeNode(NodeList* readyQueue, NodeList* waitQueue, Node* cpuRunNode, FILE* wfp) {
 	Node* nodePtr1 = readyQueue->head;
 	Node* nodePtr2 = waitQueue->head;
 
@@ -651,4 +714,11 @@ void writeNode(List* readyQueue, List* waitQueue, Node* cpuRunNode, FILE* wfp) {
 	fprintf(wfp, "\n");
 	fclose(wfp);
 	return;
+}
+
+//Project2 Code Add Part
+int MMU(int VAadr) {
+	int PAadr;
+
+
 }
