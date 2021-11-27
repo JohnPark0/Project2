@@ -23,7 +23,7 @@
 #include <malloc.h>
 
 #define MAX_PROCESS 10
-#define TIME_TICK 50000// 0.01 second(10ms).
+#define TIME_TICK 10000// 0.01 second(10ms).
 #define TIME_QUANTUM 5// 0.03 seconds(30ms).
 
  //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -42,15 +42,13 @@ typedef struct NodeList {
 	int ListSize;
 } NodeList;
 
-typedef struct Table Table;
-
-struct Table {
+typedef struct Table {
 	int* ValidBit;
 	int* SwapBit;
 	int LV2occupyBit;
-	int** Adr;
-	Table* TbAdr;
-};
+	int* Adr;
+	int* TbAdr;
+} Table;
 
 struct data_iocpu {
 	int pid;
@@ -135,7 +133,7 @@ int main(int argc, char* argv[]) {
 		LV1Table[i].TbAdr = malloc(sizeof(int) * 0x40);
 		LV1Table[i].ValidBit = malloc(sizeof(int) * 0x40);
 		for (int t = 0; t < 0x40; t++) {							//LV1 Table Variable Setting
-			LV1Table[i].TbAdr = NULL;
+			LV1Table[i].TbAdr[t] = 0;
 			LV1Table[i].ValidBit[t] = 0;
 		}
 	}
@@ -145,7 +143,7 @@ int main(int argc, char* argv[]) {
 		LV2Table[i].ValidBit = malloc(sizeof(int) * 0x40);
 		LV2Table[i].LV2occupyBit = 0;
 		for (int t = 0; t < 0x40; t++) {							//LV2 Table Variable Setting
-			LV2Table[i].Adr[t] = NULL;
+			LV2Table[i].Adr[t] = 0;
 			LV2Table[i].ValidBit[t] = 0;
 			LV2Table[i].SwapBit[t] = 0;
 		}
@@ -288,7 +286,7 @@ int main(int argc, char* argv[]) {
 				for (int i = 0; i < 10; i++) {
 					srand(time(NULL) + (cpuBurstTime*10) + i);						//time변수 시드 초기화가 1초라서 cpuBurstTime과 i를 더해서 랜덤하게 만듬
 					VAadr[i] = rand() % 0x200000;
-					printf("rand value %d\n", VAadr[i]);
+					//printf("rand value %d\n", VAadr[i]);
 				}
 
 				// cpu task is over.
@@ -324,12 +322,14 @@ int main(int argc, char* argv[]) {
 
 	// parent process excutes until the run time is over.
 	while (RUN_TIME != 0);
-	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
-	// remove message queues and terminate child processes.
 	for (int innerLoopIndex = 0; innerLoopIndex < MAX_PROCESS; innerLoopIndex++) {
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 		kill(CPID[innerLoopIndex], SIGKILL);
 	}
+	//pmsgRcv_memaccess(cpuRunNode->procNum, originCpuBurstTime);
+	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
+	// remove message queues and terminate child processes.
+	
 
 	// free dynamic memory allocation.
 	Delnode(readyQueue);
@@ -368,6 +368,9 @@ int main(int argc, char* argv[]) {
 * return: none.
 */
 void signal_timeTick(int signo) {								//SIGALRM
+	if (RUN_TIME == 0) {
+		return;
+	}
 	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);			// write ready, wait queue dump to txt file.
 	CONST_TICK_COUNT++;
 	printf("%05d       PROC NUMBER   REMAINED CPU TIME\n", CONST_TICK_COUNT);
@@ -419,7 +422,6 @@ void signal_timeTick(int signo) {								//SIGALRM
 void signal_RRcpuSchedOut(int signo) {							//SIGUSR1
 	int VAbuffer[10];
 	TICK_COUNT++;
-
 	//Memory Process
 	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
 	MemAccess(VAbuffer, cpuRunNode->procNum);
@@ -449,7 +451,6 @@ void signal_RRcpuSchedOut(int signo) {							//SIGUSR1
 void signal_ioSchedIn(int signo) {								//SIGUSR2
 	int VAbuffer[10];
 	pmsgRcv_iocpu(cpuRunNode->procNum, cpuRunNode);
-
 	//Memory Process
 	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
 	MemAccess(VAbuffer, cpuRunNode->procNum);
@@ -605,7 +606,7 @@ void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 	memset(&msg, 0, sizeof(msg));
 
 	msg.mtype = 1;
-	//msg.mdata.pid = getpid();
+	msg.mdata.pid = getpid();
 	msg.mdata.cpuTime = cpuBurstTime;// child process cpu burst time.
 	msg.mdata.ioTime = ioBurstTime;// child process io burst time.
 
@@ -664,7 +665,7 @@ void pmsgRcv_iocpu(int procNum, Node* nodePtr) {
 	}
 
 	// copy the data of child process to nodePtr.
-	//nodePtr->pid = msg.mdata.pid;
+	nodePtr->pid = msg.mdata.pid;
 	nodePtr->cpuTime = msg.mdata.cpuTime;
 	nodePtr->ioTime = msg.mdata.ioTime;
 	return;
@@ -764,21 +765,22 @@ int MemAccess(int* VAadr, int procNum) {
 			printf("LV1 Page fault\n");
 			LV2num = FindFreeLV2(LV2Table);
 			LV1Table[procNum].ValidBit[LV1buffer] = 1;
-			LV1Table[procNum].TbAdr = LV2Table+LV2num;
+			LV1Table[procNum].TbAdr[LV1buffer] = LV2num;
 		}
 		else {
 			printf("LV1 Page hit\n");
 		}
-		LV2num = LV1Table[procNum].TbAdr - LV2Table;
+		LV2num = LV1Table[procNum].TbAdr[LV1buffer];
 		if (LV2Table[LV2num].ValidBit[LV2buffer] == 0) {
 			printf("LV2 Page fault\n");
 			FreeFramenum = FindFreeFrame(FreeFrameList, &FreeFrameListSize);
 			LV2Table[LV2num].ValidBit[LV2buffer] = 1;
-			LV2Table[LV2num].Adr[LV2buffer] = Memory+((FreeFramenum*0x400)/4);
+			LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
 		}
 		else {
 			printf("LV2 Page hit\n");
 		}
+		FreeFramenum = LV2Table[LV2num].Adr[LV2buffer];
 		Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4] = 1;			//temp value input
 	}
 	return 0;
@@ -805,6 +807,10 @@ int FindFreeFrame(char* List, int* Size) {
 			*(FreeFrameSize) = *(FreeFrameSize) - 1;
 			FreeList[FreeFramenum] = 1;
 			break;
+		}
+		if (FreeFramenum == 0x4000) {
+			printf("out of memory\n");
+			exit(1);
 		}
 		FreeFramenum++;
 	}
