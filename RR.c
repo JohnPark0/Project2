@@ -23,7 +23,7 @@
 #include <malloc.h>
 
 #define MAX_PROCESS 10
-#define TIME_TICK 10000// 0.01 second(10ms).
+#define TIME_TICK 50000// 0.01 second(10ms).
 #define TIME_QUANTUM 5// 0.03 seconds(30ms).
 
  //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -90,6 +90,7 @@ void pmsgRcv_iocpu(int curProc, Node* nodePtr);
 //Project 2 Code
 void cmsgSnd_memaccess(int procNum, int* VAadr);
 void pmsgRcv_memaccess(int procNum, int* VAbuffer);
+int MemAccess(int* VAadr, int procNum);
 int FindFreeLV2(Table* LV2Table);
 int FindFreeFrame(char* FreeFrameList, int* FreeFramListSize);
 
@@ -127,8 +128,8 @@ int main(int argc, char* argv[]) {
 	FreeFrameListSize = 0x4000;										//# of left Free page frame
 	memset(FreeFrameList, 0, malloc_usable_size(FreeFrameList));	//empty = 0, full = 1;
 
-	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);			//LV1 Table = 10
-	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	//LV2 Table = 10 * 2^12
+	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);					//LV1 Table = 10
+	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);		//LV2 Table = 10 * 2^12
 
 	for (int i = 0; i < 10; i++) {									//LV1 Table Setting
 		LV1Table[i].TbAdr = malloc(sizeof(int) * 0x40);
@@ -274,6 +275,7 @@ int main(int argc, char* argv[]) {
 			int procNum = outerLoopIndex;
 			int cpuBurstTime = originCpuBurstTime[procNum];
 			int ioBurstTime = originIoBurstTime[procNum];
+			int VAadr[10];
 
 			// child process waits until a tick happens.
 			kill(getpid(), SIGSTOP);
@@ -283,24 +285,31 @@ int main(int argc, char* argv[]) {
 				cpuBurstTime--;// decrease cpu burst time by 1.
 				printf("            %02d            %02d\n", procNum, cpuBurstTime);
 				printf("───────────────────────────────────────────\n");
+				for (int i = 0; i < 10; i++) {
+					srand(time(NULL) + (cpuBurstTime*10) + i);						//time변수 시드 초기화가 1초라서 cpuBurstTime과 i를 더해서 랜덤하게 만듬
+					VAadr[i] = rand() % 0x200000;
+					printf("rand value %d\n", VAadr[i]);
+				}
 
 				// cpu task is over.
 				if (cpuBurstTime == 0) {
-					cpuBurstTime = originCpuBurstTime[procNum + (BurstCycle * 10)];// set the next cpu burst time.
+					cpuBurstTime = originCpuBurstTime[procNum + (BurstCycle * 10)];	// set the next cpu burst time.
 
 					// send the data of child process to parent process.
 					cmsgSnd_iocpu(KEY[procNum], cpuBurstTime, ioBurstTime);
-					ioBurstTime = originIoBurstTime[procNum + (BurstCycle * 10)];// set the next io burst time.
+					ioBurstTime = originIoBurstTime[procNum + (BurstCycle * 10)];	// set the next io burst time.
 
 					BurstCycle++;
 					if (BurstCycle > 298)
 					{
 						BurstCycle = 1;
 					}
+					cmsgSnd_memaccess(procNum, VAadr);
 					kill(ppid, SIGUSR2);
 				}
 				// cpu task is not over.
 				else {
+					cmsgSnd_memaccess(procNum, VAadr);
 					kill(ppid, SIGUSR1);
 				}
 				// child process waits until the next tick happens.
@@ -413,6 +422,7 @@ void signal_RRcpuSchedOut(int signo) {							//SIGUSR1
 
 	//Memory Process
 	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
+	MemAccess(VAbuffer, cpuRunNode->procNum);
 
 	// scheduler changes cpu preemptive process at every time quantum.
 	if (TICK_COUNT >= TIME_QUANTUM) {
@@ -442,6 +452,7 @@ void signal_ioSchedIn(int signo) {								//SIGUSR2
 
 	//Memory Process
 	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
+	MemAccess(VAbuffer, cpuRunNode->procNum);
 
 	// process that has no io task go to the end of the ready queue.
 	if (cpuRunNode->ioTime == 0) {
@@ -607,7 +618,7 @@ void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 }
 
 void cmsgSnd_memaccess(int procNum, int* VAadr) {
-	int key = 0x3216* (procNum + 1);
+	int key = 0x321* (procNum + 1);
 	int qid = msgget(key, IPC_CREAT | 0666);// create message queue ID.
 
 	struct msgbuf_memaccess msg;
@@ -622,7 +633,7 @@ void cmsgSnd_memaccess(int procNum, int* VAadr) {
 	}
 
 	// child process sends its data to parent process.
-	if (msgsnd(qid, (void*)&msg, sizeof(struct data_iocpu), 0) == -1) {
+	if (msgsnd(qid, (void*)&msg, sizeof(struct data_memaccess), 0) == -1) {
 		perror("child msgsnd error");
 		exit(EXIT_FAILURE);
 	}
@@ -660,12 +671,11 @@ void pmsgRcv_iocpu(int procNum, Node* nodePtr) {
 }
 
 void pmsgRcv_memaccess(int procNum, int* VAbuffer) {
-	int key = 0x3216 * (procNum + 1);// create message queue key.
+	int key = 0x321 * (procNum + 1);// create message queue key.
 	int qid = msgget(key, IPC_CREAT | 0666);
 
 	struct msgbuf_memaccess msg;
 	memset(&msg, 0, sizeof(msg));
-
 	// parent process receives child process data.
 	if (msgrcv(qid, (void*)&msg, sizeof(msg), 0, 0) == -1) {
 		perror("msgrcv error");
@@ -675,6 +685,7 @@ void pmsgRcv_memaccess(int procNum, int* VAbuffer) {
 	// copy the data of child process to nodePtr.
 	for (int i = 0; i < 10; i++) {
 		VAbuffer[i] = msg.mdata.VAadr[i];
+		//printf("msg rnad val : %d\n", msg.mdata.VAadr[i]);
 	}
 
 	return;
@@ -741,9 +752,10 @@ int MemAccess(int* VAadr, int procNum) {
 	int FreeFramenum;
 	for (int i = 0; i < 10; i++) {
 		if (FreeFrameListSize == 0) {					//Swapping
-
+			printf("wapping\n");
 		}
 		VAadrbuffer = VAadr[i];
+		printf("VAadr[%d] = %d\n", i, VAadrbuffer);
 		LV1buffer = (VAadrbuffer >> 16) & 0x3F;
 		LV2buffer = (VAadrbuffer >> 10) & 0x3F;
 		Offsetbuffer = VAadrbuffer & 0x3FF;
@@ -754,6 +766,9 @@ int MemAccess(int* VAadr, int procNum) {
 			LV1Table[procNum].ValidBit[LV1buffer] = 1;
 			LV1Table[procNum].TbAdr = LV2Table+LV2num;
 		}
+		else {
+			printf("LV1 Page hit\n");
+		}
 		LV2num = LV1Table[procNum].TbAdr - LV2Table;
 		if (LV2Table[LV2num].ValidBit[LV2buffer] == 0) {
 			printf("LV2 Page fault\n");
@@ -761,8 +776,12 @@ int MemAccess(int* VAadr, int procNum) {
 			LV2Table[LV2num].ValidBit[LV2buffer] = 1;
 			LV2Table[LV2num].Adr[LV2buffer] = Memory+((FreeFramenum*0x400)/4);
 		}
+		else {
+			printf("LV2 Page hit\n");
+		}
 		Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4] = 1;			//temp value input
 	}
+	return 0;
 }
 
 int FindFreeLV2(Table* LV2Table) {

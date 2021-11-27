@@ -20,3 +20,432 @@
 
  WAIT QUEUE
  none
+───────────────────────────────────────────────────────
+ TICK   0002
+
+ RUNNING PROCESS
+ 00
+
+ READY QUEUE
+ 01  02  03  04  05  06  07  08  09 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0003
+
+ RUNNING PROCESS
+ 00
+
+ READY QUEUE
+ 01  02  03  04  05  06  07  08  09 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0004
+
+ RUNNING PROCESS
+ 00
+
+ READY QUEUE
+ 01  02  03  04  05  06  07  08  09 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0005
+
+ RUNNING PROCESS
+ 01
+
+ READY QUEUE
+ 02  03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0006
+
+ RUNNING PROCESS
+ 01
+
+ READY QUEUE
+ 02  03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0007
+
+ RUNNING PROCESS
+ 01
+
+ READY QUEUE
+ 02  03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0008
+
+ RUNNING PROCESS
+ 01
+
+ READY QUEUE
+ 02  03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0009
+
+ RUNNING PROCESS
+ 02
+
+ READY QUEUE
+ 03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0010
+
+ RUNNING PROCESS
+ 02
+
+ READY QUEUE
+ 03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0011
+
+ RUNNING PROCESS
+ 02
+
+ READY QUEUE
+ 03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0012
+
+ RUNNING PROCESS
+ 02
+
+ READY QUEUE
+ 03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0013
+
+ RUNNING PROCESS
+ 02
+
+ READY QUEUE
+ 03  04  05  06  07  08  09  00 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0014
+
+ RUNNING PROCESS
+ 03
+
+ READY QUEUE
+ 04  05  06  07  08  09  00  02 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0015
+
+ RUNNING PROCESS
+ 03
+
+ READY QUEUE
+ 04  05  06  07  08  09  00  02 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0016
+
+ RUNNING PROCESS
+ 03
+
+ READY QUEUE
+ 04  05  06  07  08  09  00  02 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0017
+
+ RUNNING PROCESS
+ 03
+
+ READY QUEUE
+ 04  05  06  07  08  09  00  02 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0018
+
+ RUNNING PROCESS
+ 03
+
+ READY QUEUE
+ 04  05  06  07  08  09  00  02 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0019
+
+ RUNNING PROCESS
+ 04
+
+ READY QUEUE
+ 05  06  07  08  09  00  02  03 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0020
+
+ RUNNING PROCESS
+ 04
+
+ READY QUEUE
+ 05  06  07  08  09  00  02  03 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0021
+
+ RUNNING PROCESS
+ 04
+
+ READY QUEUE
+ 05  06  07  08  09  00  02  03 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0022
+
+ RUNNING PROCESS
+ 04
+
+ READY QUEUE
+ 05  06  07  08  09  00  02  03 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0023
+
+ RUNNING PROCESS
+ 04
+
+ READY QUEUE
+ 05  06  07  08  09  00  02  03 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0024
+
+ RUNNING PROCESS
+ 05
+
+ READY QUEUE
+ 06  07  08  09  00  02  03  04 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0025
+
+ RUNNING PROCESS
+ 05
+
+ READY QUEUE
+ 06  07  08  09  00  02  03  04 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0026
+
+ RUNNING PROCESS
+ 05
+
+ READY QUEUE
+ 06  07  08  09  00  02  03  04 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0027
+
+ RUNNING PROCESS
+ 05
+
+ READY QUEUE
+ 06  07  08  09  00  02  03  04 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0028
+
+ RUNNING PROCESS
+ 05
+
+ READY QUEUE
+ 06  07  08  09  00  02  03  04 
+
+ WAIT QUEUE
+ 01 
+───────────────────────────────────────────────────────
+ TICK   0029
+
+ RUNNING PROCESS
+ 06
+
+ READY QUEUE
+ 07  08  09  00  02  03  04  01  05 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0030
+
+ RUNNING PROCESS
+ 06
+
+ READY QUEUE
+ 07  08  09  00  02  03  04  01  05 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0031
+
+ RUNNING PROCESS
+ 06
+
+ READY QUEUE
+ 07  08  09  00  02  03  04  01  05 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0032
+
+ RUNNING PROCESS
+ 06
+
+ READY QUEUE
+ 07  08  09  00  02  03  04  01  05 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0033
+
+ RUNNING PROCESS
+ 06
+
+ READY QUEUE
+ 07  08  09  00  02  03  04  01  05 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0034
+
+ RUNNING PROCESS
+ 07
+
+ READY QUEUE
+ 08  09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0035
+
+ RUNNING PROCESS
+ 07
+
+ READY QUEUE
+ 08  09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0036
+
+ RUNNING PROCESS
+ 07
+
+ READY QUEUE
+ 08  09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0037
+
+ RUNNING PROCESS
+ 07
+
+ READY QUEUE
+ 08  09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0038
+
+ RUNNING PROCESS
+ 07
+
+ READY QUEUE
+ 08  09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ none
+───────────────────────────────────────────────────────
+ TICK   0039
+
+ RUNNING PROCESS
+ 08
+
+ READY QUEUE
+ 09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ 07 
+───────────────────────────────────────────────────────
+ TICK   0040
+
+ RUNNING PROCESS
+ 08
+
+ READY QUEUE
+ 09  00  02  03  04  01  05  06 
+
+ WAIT QUEUE
+ 07 
