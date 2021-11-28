@@ -90,7 +90,9 @@ void cmsgSnd_memaccess(int procNum, int* VAadr);
 void pmsgRcv_memaccess(int procNum, int* VAbuffer);
 int MemAccess(int* VAadr, int procNum);
 int FindFreeLV2(Table* LV2Table);
-int FindFreeFrame(char* FreeFrameList, int* FreeFramListSize);
+int FindFreeFrame(int* MemFreeFrameList, int option);
+int FindLRUPage(int* List);
+void PageCopy(int* target1, int target1num, int* target1list, int* target2, int target2num, int* target2list);
 
 NodeList* waitQueue;
 NodeList* readyQueue;
@@ -108,8 +110,10 @@ int RUN_TIME;
 
 //Project 2 Code
 int* Memory;
-char* FreeFrameList;
-int FreeFrameListSize;
+int* Disk;
+int* MemFreeFrameList;
+int MemFreeFrameListSize;
+int* DiskFreeFrameList;
 Table* LV1Table;
 Table* LV2Table;
 
@@ -121,11 +125,17 @@ int main(int argc, char* argv[]) {
 	int ppid = getpid();// get parent process id.
 
 	//Project 2 Code
-	Memory = (int*)malloc(sizeof(int) * 0x400000);					//16MB = 32bits(4byte) * 0x40:0000
-	FreeFrameList = malloc(sizeof(int) * 0x1000);					//Free page frame list : 16MB = 1KB * 32bits(4byte) * 0x1000
-	FreeFrameListSize = 0x4000;										//# of left Free page frame
-	memset(FreeFrameList, 0, malloc_usable_size(FreeFrameList));	//empty = 0, full = 1;
+	Memory = (int*)malloc(sizeof(int) * 0x400000);						//16MB = 32bits(4byte) * 0x40:0000
+	Disk = (int*)malloc(sizeof(int) * 0x400000);
+	MemFreeFrameList = (int*)malloc(sizeof(int) * 0x4000);				//Free page frame list : 16MB = 1KB * 32bits(4byte) * 0x1000
+	DiskFreeFrameList = (int*)malloc(sizeof(int) * 0x4000);
+	//MemFreeFrameListSize = 0x4000;										//# of left Free page frame
+	MemFreeFrameListSize = 0x500;
 
+	memset(MemFreeFrameList, 0, malloc_usable_size(MemFreeFrameList));	//empty = 0, full = 1;
+	memset(DiskFreeFrameList, 0, malloc_usable_size(DiskFreeFrameList));
+	memset(Memory, 0, malloc_usable_size(Memory));
+	memset(Disk, 0, malloc_usable_size(Disk));
 	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);					//LV1 Table = 10
 	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);		//LV2 Table = 10 * 2^12
 
@@ -148,18 +158,7 @@ int main(int argc, char* argv[]) {
 			LV2Table[i].SwapBit[t] = 0;
 		}
 	}
-
-	//------------------------------Memory Alloc Test---------------------------------
-	//TableAdr[0] = (int*)malloc((int)sizeof(int) * 15);							//int*의 배열선언
-	//TableAdr[1] = (int*)malloc((int)sizeof(int) * 10);
-
-	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));	//heap메모리 크기 출력 (원래보다 조금 클 수 있다고함)
-	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[1]));
-
-	//TableAdr[0] = realloc(TableAdr[0], sizeof(int) * 40);						//메모리 확장
-	//printf("memory test : %d bytes\n", (int)malloc_usable_size(TableAdr[0]));
-	//--------------------------------------------------------------------------------
-
+	
 	struct itimerval new_itimer;
 	struct itimerval old_itimer;
 
@@ -217,6 +216,8 @@ int main(int argc, char* argv[]) {
 
 	// create message queue key.
 	for (int innerLoopIndex = 0; innerLoopIndex < MAX_PROCESS; innerLoopIndex++) {
+		KEY[innerLoopIndex] = 0x6123 * (innerLoopIndex + 1);
+		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 		KEY[innerLoopIndex] = 0x3216 * (innerLoopIndex + 1);
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 	}
@@ -284,7 +285,7 @@ int main(int argc, char* argv[]) {
 				printf("            %02d            %02d\n", procNum, cpuBurstTime);
 				printf("───────────────────────────────────────────\n");
 				for (int i = 0; i < 10; i++) {
-					srand(time(NULL) + (cpuBurstTime*10) + i);						//time변수 시드 초기화가 1초라서 cpuBurstTime과 i를 더해서 랜덤하게 만듬
+					srand(time(NULL) + (CONST_TICK_COUNT<<(i*2)) + i);						//time변수 시드 초기화가 1초라서 cpuBurstTime과 i를 더해서 랜덤하게 만듬
 					VAadr[i] = rand() % 0x200000;
 					//printf("rand value %d\n", VAadr[i]);
 				}
@@ -326,10 +327,9 @@ int main(int argc, char* argv[]) {
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 		kill(CPID[innerLoopIndex], SIGKILL);
 	}
-	//pmsgRcv_memaccess(cpuRunNode->procNum, originCpuBurstTime);
 	writeNode(readyQueue, waitQueue, cpuRunNode, wfp);// write ready, wait queue dump to txt file.
 	// remove message queues and terminate child processes.
-	
+
 
 	// free dynamic memory allocation.
 	Delnode(readyQueue);
@@ -343,7 +343,7 @@ int main(int argc, char* argv[]) {
 	free(ioRunNode);
 
 	for (int i = 0; i < 10; i++) {
-		free(LV1Table[i].Adr);
+		free(LV1Table[i].TbAdr);
 		free(LV1Table[i].ValidBit);
 	}
 	for (int i = 0; i < 0xA000; i++) {
@@ -353,6 +353,10 @@ int main(int argc, char* argv[]) {
 	}
 	free(LV1Table);
 	free(LV2Table);
+	free(Memory);
+	free(Disk);
+	free(MemFreeFrameList);
+	free(DiskFreeFrameList);
 	return 0;
 }
 
@@ -423,7 +427,7 @@ void signal_RRcpuSchedOut(int signo) {							//SIGUSR1
 	int VAbuffer[10];
 	TICK_COUNT++;
 	//Memory Process
-	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
+	pmsgRcv_memaccess(cpuRunNode->procNum, VAbuffer);
 	MemAccess(VAbuffer, cpuRunNode->procNum);
 
 	// scheduler changes cpu preemptive process at every time quantum.
@@ -452,7 +456,7 @@ void signal_ioSchedIn(int signo) {								//SIGUSR2
 	int VAbuffer[10];
 	pmsgRcv_iocpu(cpuRunNode->procNum, cpuRunNode);
 	//Memory Process
-	pmsgRcv_memaccess(cpuRunNode->procNum,VAbuffer);
+	pmsgRcv_memaccess(cpuRunNode->procNum, VAbuffer);
 	MemAccess(VAbuffer, cpuRunNode->procNum);
 
 	// process that has no io task go to the end of the ready queue.
@@ -619,7 +623,7 @@ void cmsgSnd_iocpu(int key, int cpuBurstTime, int ioBurstTime) {
 }
 
 void cmsgSnd_memaccess(int procNum, int* VAadr) {
-	int key = 0x321* (procNum + 1);
+	int key = 0x6123 * (procNum + 1);
 	int qid = msgget(key, IPC_CREAT | 0666);// create message queue ID.
 
 	struct msgbuf_memaccess msg;
@@ -672,7 +676,7 @@ void pmsgRcv_iocpu(int procNum, Node* nodePtr) {
 }
 
 void pmsgRcv_memaccess(int procNum, int* VAbuffer) {
-	int key = 0x321 * (procNum + 1);// create message queue key.
+	int key = 0x6123 * (procNum + 1);// create message queue key.
 	int qid = msgget(key, IPC_CREAT | 0666);
 
 	struct msgbuf_memaccess msg;
@@ -749,18 +753,29 @@ int MemAccess(int* VAadr, int procNum) {
 	int LV1buffer;
 	int LV2buffer;
 	int Offsetbuffer;
+	int Memorybuffer;
+	int LRUbuffer;
+	int Swapbuffer;
 	int LV2num;
 	int FreeFramenum;
+	
 	for (int i = 0; i < 10; i++) {
-		if (FreeFrameListSize == 0) {					//Swapping
-			printf("wapping\n");
+		if (MemFreeFrameListSize < 0x300) {									//Swapping
+			printf("Swap Out\n");
+			LRUbuffer = FindLRUPage(MemFreeFrameList);
+			LV2num = LV1Table[procNum].TbAdr[(LRUbuffer >> 26) & 0x3F];
+			LV2Table[LV2num].SwapBit[(LRUbuffer >> 20) & 0x3F] = 1;
+			FreeFramenum = FindFreeFrame(DiskFreeFrameList, 1);
+			PageCopy(Disk, FreeFramenum, DiskFreeFrameList, Memory, LRUbuffer, MemFreeFrameList);
+			MemFreeFrameListSize++;
+			printf("Data Move : Memory[0x%x - 0x%x] -> Disk[0x%x - 0x%x]\n", (LRUbuffer * 0x400), (((LRUbuffer + 1) * 0x400) - 1), (FreeFramenum * 0x400), (((FreeFramenum + 1) * 0x400) - 1));
 		}
 		VAadrbuffer = VAadr[i];
-		printf("VAadr[%d] = %d\n", i, VAadrbuffer);
+		printf("VAadr[%d] = 0x%x\n", i, VAadrbuffer);
 		LV1buffer = (VAadrbuffer >> 16) & 0x3F;
 		LV2buffer = (VAadrbuffer >> 10) & 0x3F;
 		Offsetbuffer = VAadrbuffer & 0x3FF;
-		
+
 		if (LV1Table[procNum].ValidBit[LV1buffer] == 0) {
 			printf("LV1 Page fault\n");
 			LV2num = FindFreeLV2(LV2Table);
@@ -769,26 +784,52 @@ int MemAccess(int* VAadr, int procNum) {
 		}
 		else {
 			printf("LV1 Page hit\n");
+			LV2num = LV1Table[procNum].TbAdr[LV1buffer];
 		}
-		LV2num = LV1Table[procNum].TbAdr[LV1buffer];
 		if (LV2Table[LV2num].ValidBit[LV2buffer] == 0) {
 			printf("LV2 Page fault\n");
-			FreeFramenum = FindFreeFrame(FreeFrameList, &FreeFrameListSize);
+			FreeFramenum = FindFreeFrame(MemFreeFrameList, 0);
 			LV2Table[LV2num].ValidBit[LV2buffer] = 1;
 			LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
 		}
 		else {
 			printf("LV2 Page hit\n");
+			if (LV2Table[LV2num].SwapBit[LV2buffer] == 1) {
+				printf("Swap In\n");
+				FreeFramenum = FindFreeFrame(MemFreeFrameList, 0);
+				Swapbuffer = LV2Table[LV2num].Adr[LV2buffer];
+				PageCopy(Memory, FreeFramenum, MemFreeFrameList, Disk, Swapbuffer, DiskFreeFrameList);
+				printf("Data Move : Disk[0x%x - 0x%x] -> Memory[0x%x - 0x%x]\n", (Swapbuffer * 0x400), (((Swapbuffer + 1) * 0x400) - 1), (FreeFramenum * 0x400), (((FreeFramenum + 1) * 0x400) - 1));
+				LV2Table[LV2num].SwapBit[LV2buffer] = 0;
+				LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
+			}
+			else {
+				FreeFramenum = LV2Table[LV2num].Adr[LV2buffer];
+				//FreeFramePageList (31bits = LRU count bit, 1bit = Page Occupy bit)
+				MemFreeFrameList[FreeFramenum] += 0x2;												//LRU bit +1
+				MemFreeFrameList[FreeFramenum] += (LV1buffer << 26);
+				MemFreeFrameList[FreeFramenum] += (LV2buffer << 20);
+			}
 		}
-		FreeFramenum = LV2Table[LV2num].Adr[LV2buffer];
-		Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4] = 1;			//temp value input
+		printf("PAadr[%d] = 0x%x\n", i, (FreeFramenum) * 0x400 + Offsetbuffer);
+
+		//Memory Write Read Part
+		//Memory [1bit = valid bit, 31bits = data]
+		Memorybuffer = Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4];
+		if (((Memorybuffer >> 31) & 0x1) == 0) {																			//No data is written to memory(valid bit = 0)
+			Memory[((FreeFramenum * 0x400) + Offsetbuffer) / 4] = (CONST_TICK_COUNT + 0x80000000);							//0x8000:000 -> valid bit		
+			printf("Data Write -> PAadr[0x%x] = %d\n\n", (FreeFramenum) * 0x400 + Offsetbuffer, CONST_TICK_COUNT);		
+		}
+		else {																												//data is written to memory(valid bit = 1)
+			printf("Data Read -> PAadr[0x%x] = %d\n\n", (FreeFramenum) * 0x400 + Offsetbuffer, (Memorybuffer - 0x80000000));
+		}
 	}
 	return 0;
 }
 
 int FindFreeLV2(Table* LV2Table) {
 	int LV2num = 0;
-	while(1) {
+	while (1) {
 		if (LV2Table[LV2num].LV2occupyBit == 0) {
 			LV2Table[LV2num].LV2occupyBit = 1;
 			break;
@@ -798,21 +839,49 @@ int FindFreeLV2(Table* LV2Table) {
 	return LV2num;
 }
 
-int FindFreeFrame(char* List, int* Size) {
+int FindFreeFrame(int* List, int option) {
 	int FreeFramenum = 0;
-	char* FreeList = List;
-	int* FreeFrameSize = Size;
+	int* FreeList = List;
+	
+	//FreeFramePageList (31bits = LRU count bit, 1bit = Page Occupy bit)
 	while (1) {
-		if (FreeList[FreeFramenum] == 0) {
-			*(FreeFrameSize) = *(FreeFrameSize) - 1;
-			FreeList[FreeFramenum] = 1;
+		if ((FreeList[FreeFramenum] & 0x1) == 0) {
+			if (option == 0) {																	//option -> MemFreeFrameList type(0 = memory freeframelist, else = disk freeframelist)
+				MemFreeFrameListSize--;
+			}
+			FreeList[FreeFramenum] += 0x3;														//LRU bit update
 			break;
-		}
-		if (FreeFramenum == 0x4000) {
-			printf("out of memory\n");
-			exit(1);
 		}
 		FreeFramenum++;
 	}
 	return FreeFramenum;
+}
+
+int FindLRUPage(int* List) {
+	int* FreeList = List;
+	int LRUPage = 0;
+	int LRUCount = 0xFFFFFFFF;
+
+	//FreeFramePageList (6bits = LV1 info, 6bits = LV2 info, 19bits = LRU count bit, 1bit = Page Occupy bit)
+	for (int i = 0; i < 0x4000; i++) {
+		if ((FreeList[i] >> 1) & 0x7FFFF == 1 && (FreeList[i] & 0x1) == 1) {
+			LRUPage = i;
+			break;
+		}
+		if ((FreeList[i] >> 1) & 0x7FFFF < LRUCount && (FreeList[i] & 0x1) == 1) {			//LRU Page update(Find Samllest & occupied)
+			LRUPage = i;
+			LRUCount = (FreeList[i] >> 1) & 0x7FFFF;
+		}
+	}
+
+	return LRUPage;
+}
+
+void PageCopy(int* target1, int target1num, int* target1list, int* target2, int target2num, int* target2list) {
+	for (int i = 0; i < 0x100; i++) {
+		target1[(target1num * 0x100) + i] = target2[(target2num * 0x100) + i];
+		target2[(target2num * 0x100) + i] = 0;
+	}
+	target1list[target1num] = target2list[target2num];
+	target2list[target2num] = target2list[target2num] & 0xFFFFFFFE;
 }
