@@ -776,9 +776,11 @@ int MMU(int* VAadr, int procNum) {
 	int Offsetbuffer;
 	int Memorybuffer;
 	int LRUbuffer;
+	int procbuffer;
 	int SwapDiskAdr;
 	int LV2num;
 	int FreeFramenum;
+
 	wpmemory = fopen("RR_Meomry_dump.txt", "a+");							// open stream file append+ mode.
 	fprintf(wpmemory,"---------------------------------------\n");
 	fprintf(wpmemory, " TICK   %04d\n", CONST_TICK_COUNT);
@@ -788,7 +790,8 @@ int MMU(int* VAadr, int procNum) {
 			fprintf(wpmemory, "Swap Out\n");
 			LRUbuffer = FindLRUPage(MemFreeFrameList);						//Find Least Rescent Use Page
 			LV1buffer = (MemFreeFrameList[LRUbuffer] >> 27) & 0x1F;			//Load LV1 info
-			LV2num = LV1Table[procNum].TbAdr[LV1buffer];
+			procbuffer = (MemFreeFrameList[LRUbuffer] >> 18) & 0xF;			//Load Proc info
+			LV2num = LV1Table[procbuffer].TbAdr[LV1buffer];
 			LV2buffer = (MemFreeFrameList[LRUbuffer] >> 22) & 0x1F;			//Load Lv2 info
 			LV2Table[LV2num].SwapBit[LV2buffer] = 1;
 			FreeFramenum = FindFreeFrame(DiskFreeFrameList, 1);				//Find Disk Free Page Frame
@@ -818,9 +821,10 @@ int MMU(int* VAadr, int procNum) {
 			FreeFramenum = FindFreeFrame(MemFreeFrameList, 0);
 			LV2Table[LV2num].LV1ValidBit[LV2buffer] = 1;
 			LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
-			//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 21bits = Empty, 1bit = Page Valid bit)	
+			//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 4bits = proc info, 17bits = Empty, 1bit = Page Valid bit)	
 			MemFreeFrameList[FreeFramenum] += ((LV1buffer & 0x1F) << 27);	//Save LV1 info
 			MemFreeFrameList[FreeFramenum] += ((LV2buffer & 0x1F) << 22);	//Save Lv2 info								//0x1F(5bits)
+			MemFreeFrameList[FreeFramenum] += ((procbuffer & 0xF) << 18);	//Save Proc info							//0xF(4bits)
 		}
 		else {																//LV2 Page hit -> Load Memory Page
 			fprintf(wpmemory, "LV2 Page hit\n");
@@ -879,7 +883,7 @@ int FindFreeFrame(int* List, int option) {
 	int FreeFramenum = 0;
 	int* FreeList = List;
 	
-	//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 21bits = Empty, 1bit = Page Valid bit)
+	//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 4bits = proc info, 17bits = Empty, 1bit = Page Valid bit)
 	for (int i = 0; i < 0x400; i++) {
 		if ((FreeList[i] & 0x1) == 0) {
 			if (option == 0) {								//option -> MemFreeFrameList type(0 = memory freeframelist, else = disk freeframelist)
@@ -903,7 +907,7 @@ int FindLRUPage(int* List) {
 	int LRUPage = 0;
 	int LRUCount = 9999999;
 
-	//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 21bits = Empty, 1bit = Page Valid bit)
+	//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 4bits = proc info, 17bits = Empty, 1bit = Page Valid bit)
 	for (int i = 0; i < 0x400; i++) {
 		if ((FreeList[i] & 0x1) == 1) {
 			if(LRU[i] < LRUCount) {
