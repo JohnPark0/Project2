@@ -43,9 +43,9 @@ typedef struct NodeList {
 } NodeList;
 
 typedef struct Table {
-	int* LV1ValidBit;
+	int* ValidBit;
 	int* SwapBit;
-	int LV2ValidBit;
+	int LV2OccupyBit;
 	int* Adr;
 	int* TbAdr;
 } Table;
@@ -142,20 +142,20 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 0; i < 10; i++) {									//LV1 Table Setting(5bits)
 		LV1Table[i].TbAdr = malloc(sizeof(int) * 0x20);				//32(0x20)
-		LV1Table[i].LV1ValidBit = malloc(sizeof(int) * 0x20);
+		LV1Table[i].ValidBit = malloc(sizeof(int) * 0x20);
 		for (int t = 0; t < 0x20; t++) {							//LV1 Table Variable Setting
 			LV1Table[i].TbAdr[t] = 0;
-			LV1Table[i].LV1ValidBit[t] = 0;
+			LV1Table[i].ValidBit[t] = 0;
 		}
 	}
 	for (int i = 0; i < 0x2800; i++) {								//LV2 Table Setting(5bits)
 		LV2Table[i].Adr = malloc(sizeof(int) * 0x20);
 		LV2Table[i].SwapBit = malloc(sizeof(int) * 0x20);
-		LV2Table[i].LV1ValidBit = malloc(sizeof(int) * 0x20);
-		LV2Table[i].LV2ValidBit = 0;
+		LV2Table[i].ValidBit = malloc(sizeof(int) * 0x20);
+		LV2Table[i].LV2OccupyBit = 0;
 		for (int t = 0; t < 0x20; t++) {							//LV2 Table Variable Setting
 			LV2Table[i].Adr[t] = 0;
-			LV2Table[i].LV1ValidBit[t] = 0;
+			LV2Table[i].ValidBit[t] = 0;
 			LV2Table[i].SwapBit[t] = 0;
 		}
 	}
@@ -211,7 +211,7 @@ int main(int argc, char* argv[]) {
 	}
 	fclose(wpburst);
 
-	wpmemory = fopen("RR_Meomry_dump.txt", "w");
+	wpmemory = fopen("RR_Memory_dump.txt", "w");
 	if (wpmemory == NULL) {
 		perror("file open error");
 		exit(EXIT_FAILURE);
@@ -293,7 +293,7 @@ int main(int argc, char* argv[]) {
 				printf("            %02d            %02d\n", procNum, cpuBurstTime);
 				printf("───────────────────────────────────────────\n");
 				for (int i = 0; i < 10; i++) {
-					srand(time(NULL) + (CONST_TICK_COUNT<<(i*2)) + i);
+					srand(time(NULL) + i + CONST_TICK_COUNT^(getpid()<<16));
 					VAadr[i] = rand() % 0x40000;
 				}
 
@@ -351,12 +351,12 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 0; i < 10; i++) {
 		free(LV1Table[i].TbAdr);
-		free(LV1Table[i].LV1ValidBit);
+		free(LV1Table[i].ValidBit);
 	}
 	for (int i = 0; i < 0x2800; i++) {
 		free(LV2Table[i].Adr);
 		free(LV2Table[i].SwapBit);
-		free(LV2Table[i].LV1ValidBit);
+		free(LV2Table[i].ValidBit);
 	}
 	free(LV1Table);
 	free(LV2Table);
@@ -781,7 +781,7 @@ int MMU(int* VAadr, int procNum) {
 	int LV2num;
 	int FreeFramenum;
 
-	wpmemory = fopen("RR_Meomry_dump.txt", "a+");							// open stream file append+ mode.
+	wpmemory = fopen("RR_Memory_dump.txt", "a+");							// open stream file append+ mode.
 	fprintf(wpmemory,"---------------------------------------\n");
 	fprintf(wpmemory, " TICK   %04d\n", CONST_TICK_COUNT);
 	fprintf(wpmemory,"---------------------------------------\n");
@@ -790,9 +790,10 @@ int MMU(int* VAadr, int procNum) {
 			fprintf(wpmemory, "Swap Out\n");
 			LRUbuffer = FindLRUPage(MemFreeFrameList);						//Find Least Rescent Use Page
 			LV1buffer = (MemFreeFrameList[LRUbuffer] >> 27) & 0x1F;			//Load LV1 info
-			procbuffer = (MemFreeFrameList[LRUbuffer] >> 18) & 0xF;			//Load Proc info
-			LV2num = LV1Table[procbuffer].TbAdr[LV1buffer];
 			LV2buffer = (MemFreeFrameList[LRUbuffer] >> 22) & 0x1F;			//Load Lv2 info
+			procbuffer = (MemFreeFrameList[LRUbuffer] >> 18) & 0xF;			//Load Proc info
+			
+			LV2num = LV1Table[procbuffer].TbAdr[LV1buffer];
 			LV2Table[LV2num].SwapBit[LV2buffer] = 1;
 			FreeFramenum = FindFreeFrame(DiskFreeFrameList, 1);				//Find Disk Free Page Frame
 			LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
@@ -806,20 +807,20 @@ int MMU(int* VAadr, int procNum) {
 		LV2buffer = (VAadrbuffer >> 10) & 0x1F;								//0x1F(5bits)
 		Offsetbuffer = VAadrbuffer & 0x3FF;									//0x3FF(10bits)
 
-		if (LV1Table[procNum].LV1ValidBit[LV1buffer] == 0) {				//LV1 Page fault -> alloc LV2 Table
+		if (LV1Table[procNum].ValidBit[LV1buffer] == 0) {				//LV1 Page fault -> alloc LV2 Table
 			fprintf(wpmemory, "LV1 Page fault\n");
 			LV2num = FindFreeLV2(LV2Table);
-			LV1Table[procNum].LV1ValidBit[LV1buffer] = 1;
+			LV1Table[procNum].ValidBit[LV1buffer] = 1;
 			LV1Table[procNum].TbAdr[LV1buffer] = LV2num;
 		}
 		else {																//LV1 Page hit -> Load LV2 Table
 			fprintf(wpmemory, "LV1 Page hit\n");
 			LV2num = LV1Table[procNum].TbAdr[LV1buffer];
 		}
-		if (LV2Table[LV2num].LV1ValidBit[LV2buffer] == 0) {					//LV2 Page fault -> alloc Memory Page
+		if (LV2Table[LV2num].ValidBit[LV2buffer] == 0) {					//LV2 Page fault -> alloc Memory Page
 			fprintf(wpmemory, "LV2 Page fault\n");
 			FreeFramenum = FindFreeFrame(MemFreeFrameList, 0);
-			LV2Table[LV2num].LV1ValidBit[LV2buffer] = 1;
+			LV2Table[LV2num].ValidBit[LV2buffer] = 1;
 			LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;
 			//FreeFramePageList (5bits = LV1 info, 5bits = LV2 info, 4bits = proc info, 17bits = Empty, 1bit = Page Valid bit)	
 			MemFreeFrameList[FreeFramenum] += ((LV1buffer & 0x1F) << 27);	//Save LV1 info
@@ -836,6 +837,9 @@ int MMU(int* VAadr, int procNum) {
 				fprintf(wpmemory, "Data Move : Disk[0x%x - 0x%x] -> Memory[0x%x - 0x%x]\n", (SwapDiskAdr * 0x400), (((SwapDiskAdr + 1) * 0x400) - 1), (FreeFramenum * 0x400), (((FreeFramenum + 1) * 0x400) - 1));
 				LV2Table[LV2num].SwapBit[LV2buffer] = 0;
 				LV2Table[LV2num].Adr[LV2buffer] = FreeFramenum;				//Update Page adr(Disk->Mem)
+				MemFreeFrameList[FreeFramenum] += ((LV1buffer & 0x1F) << 27);	//Save LV1 info
+				MemFreeFrameList[FreeFramenum] += ((LV2buffer & 0x1F) << 22);	//Save Lv2 info								//0x1F(5bits)
+				MemFreeFrameList[FreeFramenum] += ((procbuffer & 0xF) << 18);	//Save Proc info							//0xF(4bits)
 			}
 			else {															//Data not Swap-out Before
 				FreeFramenum = LV2Table[LV2num].Adr[LV2buffer];				//Load Page from Memory
@@ -866,8 +870,8 @@ int MMU(int* VAadr, int procNum) {
 int FindFreeLV2(Table* LV2Table) {
 	int LV2num = 0;
 	for (int i = 0; i < 0x2800; i++) {						//Tatal LV2 Table : 10240(0x2800)
-		if (LV2Table[LV2num].LV2ValidBit == 0) {
-			LV2Table[LV2num].LV2ValidBit = 1;
+		if (LV2Table[LV2num].LV2OccupyBit == 0) {
+			LV2Table[LV2num].LV2OccupyBit = 1;
 			break;
 		}
 		LV2num++;
