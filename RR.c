@@ -23,7 +23,7 @@
 #include <malloc.h>
 
 #define MAX_PROCESS 10
-#define TIME_TICK 1000// 0.01 second(10ms).
+#define TIME_TICK 10000// 0.01 second(10ms).
 #define TIME_QUANTUM 5// 0.03 seconds(30ms).
 
  //////////////////////////////////////////////////////////////////////////////////////////////////
