@@ -287,13 +287,18 @@ int main(int argc, char* argv[]) {
 	while (RUN_TIME != 0);
 
 	// 메시지 큐를 삭제하고 자식 프로세스를 종료합니다.
-	for (int innerLoopIndex = 0; innerLoopIndex < MAX_PROCESS; innerLoopIndex++) {
-		KEY[innerLoopIndex] = 3216 * (innerLoopIndex + 1);
-		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
-		KEY[innerLoopIndex] = 6123 * (innerLoopIndex + 1);
-		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
-		kill(CPID[innerLoopIndex], SIGKILL);
+	for (int i = 0; i < MAX_PROCESS; i++) {
+		KEY[i] = 0x3216 * (i + 1);
+		msgctl(msgget(KEY[i], IPC_CREAT | 0666), IPC_RMID, NULL);
 	}
+	for (int i = 0; i < MAX_PROCESS; i++) {
+		KEY[i] = 0x6123 * (i + 1);
+		msgctl(msgget(KEY[i], IPC_CREAT | 0666), IPC_RMID, NULL);
+	}
+	for (int i = 0; i < MAX_PROCESS; i++) {
+		kill(CPID[i], SIGKILL);
+	}
+
 	writeNode(readyQueue, waitQueue, cpuRunNode, wpburst);
 
 	// 동적 할당받은 메모리를 모두 해제합니다.
