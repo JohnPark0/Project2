@@ -257,7 +257,9 @@ int main(int argc, char* argv[]) {
 				printf("            %02d            %02d\n", procNum, cpuBurstTime);
 				printf("───────────────────────────────────────────\n");
 				for (int i = 0; i < 10; i++) {
-					srand(time(NULL) + (CONST_TICK_COUNT << (i * 2)) + i);
+					//int temp = rand();
+					//srand(time(NULL) + temp);
+					srand(time(NULL));
 					VAadr[i] = rand() % 0x40000;
 				}
 
@@ -297,7 +299,7 @@ int main(int argc, char* argv[]) {
 	// remove message queues and terminate child processes.
 	for (int innerLoopIndex = 0; innerLoopIndex < MAX_PROCESS; innerLoopIndex++) {
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
-		KEY[innerLoopIndex] = 6123 * (innerLoopIndex + 1);
+		KEY[innerLoopIndex] = 0x6123 * (innerLoopIndex + 1);
 		msgctl(msgget(KEY[innerLoopIndex], IPC_CREAT | 0666), IPC_RMID, NULL);
 		kill(CPID[innerLoopIndex], SIGKILL);
 	}
@@ -350,7 +352,7 @@ void signal_timeTick(int signo) {								//SIGALRM
 	writeNode(readyQueue, waitQueue, cpuRunNode, wpburst);			// write ready, wait queue dump to txt file.
 	CONST_TICK_COUNT++;
 	printf("%05d       PROC NUMBER   REMAINED CPU TIME\n", CONST_TICK_COUNT);
-
+	
 	// io burst part.
 	Node* NodePtr = waitQueue->head;
 	int waitQueueSize = 0;
@@ -750,7 +752,7 @@ int MMU(int* VAadr, int procNum) {
 	fprintf(wpmemory, " TICK   %04d\n", CONST_TICK_COUNT);
 	fprintf(wpmemory, "---------------------------------------\n");
 	for (int i = 0; i < 10; i++) {
-		if (MemFreeFrameListSize < 0x300) {									//memory useage over 25% -> Swapping
+		if (MemFreeFrameListSize < 2) {									//memory useage over 25% -> Swapping
 			fprintf(wpmemory, "Swap Out\n");
 			LRUbuffer = FindLRUPage(MemFreeFrameList);						//Find Least Rescent Use Page
 			LV1buffer = (MemFreeFrameList[LRUbuffer] >> 27) & 0x1F;			//Load LV1 info

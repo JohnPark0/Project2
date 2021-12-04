@@ -250,8 +250,9 @@ int main(int argc, char* argv[]) {
 
 				// 무작위 논리 주소 10개를 생성합니다.
 				for (int i = 0; i < 10; i++) {
-					srand(time(NULL) + (CONST_TICK_COUNT << (i * 2)) + i);
-					cLogicalAddress[i] = rand() % 0x40000;
+					int temp = rand();
+					srand(time(NULL) + temp);
+					cLogicalAddress[i] = rand() % 0x80000;		//프로세스 메모리 (512KB(0x8:0000) = 512 * 1024)
 				}
 
 				// 생성한 논리 주소를 메시지 큐에 보냅니다.
@@ -648,12 +649,12 @@ int MMU(int* pLogicalAddress, int procNum) {
 		fprintf(wpmemory, " %d번째 논리 주소 0x%x\n", i, logicalAddress);
 
 		/* Step 0. 스왑 아웃 */
-		if (memFrameListSize < 0x300) {// 메모리 25% 이상을 사용할 경우, 스왑 아웃이 발생합니다.
+		if (memFrameListSize < 0x100) {// 메모리 3840 이상을 사용할 경우, 스왑 아웃이 발생합니다.
 			fprintf(wpmemory, " 스왑 아웃 [o] ");
 			LRUpage = searchLRUPage(memFrameList);// 가장 적게 사용한 페이지를 찾습니다.
-			LV1PageNumber = (memFrameList[LRUpage] >> 27) & 0x1F;
-			LV2PageNumber = (memFrameList[LRUpage] >> 22) & 0x1F;
-			procNumber = (memFrameList[LRUpage] >> 18) & 0xF;
+			LV1PageNumber = (memFrameList[LRUpage] >> 26) & 0x3F;
+			LV2PageNumber = (memFrameList[LRUpage] >> 20) & 0x3F;
+			procNumber = (memFrameList[LRUpage] >> 16) & 0xF;
 
 			LV2TableNumber = LV1Table[procNumber].tableNumber[LV1PageNumber];
 			LV2Table[LV2TableNumber].presentBit[LV2PageNumber] = 1;
@@ -667,9 +668,9 @@ int MMU(int* pLogicalAddress, int procNum) {
 		else
 			fprintf(wpmemory, " 스왑 아웃 [x]\n");
 
-		/* Step 1: 논리 주소를 1레벨 페이지 번호(5비트), 2레벨 페이지 번호(5비트), 그리고 변위(10비트)로 구분합니다. */
-		LV1PageNumber	= (logicalAddress >> 15) & 0x1F;
-		LV2PageNumber	= (logicalAddress >> 10) & 0x1F;
+		/* Step 1: 논리 주소를 1레벨 페이지 번호(6비트), 2레벨 페이지 번호(6비트), 그리고 변위(10비트)로 구분합니다. */
+		LV1PageNumber	= (logicalAddress >> 16) & 0x3F;
+		LV2PageNumber	= (logicalAddress >> 10) & 0x3F;
 		offset			= logicalAddress & 0x3FF;		
 
 		/* Step 2: 1레벨 페이지 폴트 */
@@ -705,9 +706,9 @@ int MMU(int* pLogicalAddress, int procNum) {
 
 			// 메모리 프리 프레임 리스트에 1레벨 페이지 테이블 번호, 2레벨 페이지 테이블 번호, 프로세스 번호를 저장합니다.
 			// 프리 프레임 리스트 항목은 LV1 page number(5bits), LV2 page number(5bits), process number(4bits), empty bits(17bits), valid bit(1bit)로 구성되어 있습니다.	
-			memFrameList[frameNumber] += ((LV1PageNumber & 0x1F) << 27);
-			memFrameList[frameNumber] += ((LV2PageNumber & 0x1F) << 22);
-			memFrameList[frameNumber] += ((procNum & 0xF) << 18);
+			memFrameList[frameNumber] += ((LV1PageNumber & 0x3F) << 26);
+			memFrameList[frameNumber] += ((LV2PageNumber & 0x3F) << 20);
+			memFrameList[frameNumber] += ((procNum & 0xF) << 16);
 		}
 		/* Step 3: 2레벨 페이지 히트 */
 		else {
@@ -725,9 +726,10 @@ int MMU(int* pLogicalAddress, int procNum) {
 				LV2Table[LV2TableNumber].presentBit[LV2PageNumber] = 0;
 				LV2Table[LV2TableNumber].frameNumber[LV2PageNumber] = frameNumber;
 
-				memFrameList[frameNumber] += ((LV1PageNumber & 0x1F) << 27);
-				memFrameList[frameNumber] += ((LV2PageNumber & 0x1F) << 22);
-				memFrameList[frameNumber] += ((procNum & 0xF) << 18);
+				// 프리 프레임 리스트는 LV1 page number(6bits), LV2 page number(6bits), process number(4bits), empty bits(15bits), state bit(1bit)로 구성되어 있습니다.	
+				memFrameList[frameNumber] += ((LV1PageNumber & 0x3F) << 26);
+				memFrameList[frameNumber] += ((LV2PageNumber & 0x3F) << 20);
+				memFrameList[frameNumber] += ((procNum & 0xF) << 16);
 			}
 			else {
 				fprintf(wpmemory, " 스왑 인 [x]\n");
@@ -763,7 +765,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 int searchFreeLV2PageTable(Table* LV2Table) {
 	int LV2PageTableNumber = 0;
 
-	for (int i = 0; i < 0x2800; i++) {//Tatal LV2 Table : 10240(0x2800)
+	for (int i = 0; i < 0xA000; i++) {//Tatal LV2 Table : 40960(0xA000)
 		if (LV2Table[LV2PageTableNumber].stateBit == 0) {
 			LV2Table[LV2PageTableNumber].stateBit = 1;
 			break;
@@ -780,9 +782,9 @@ int searchFreeLV2PageTable(Table* LV2Table) {
 int searchFreeFrame(int* frameList, int option) {
 	int frameNumber = 0;
 
-	// 프리 프레임 리스트 항목은 LV1 page number(5bits), LV2 page number(5bits), process number(4bits), empty bits(17bits), state bit(1bit)로 구성되어 있습니다.
+	// 프리 프레임 리스트 항목은 LV1 page number(6bits), LV2 page number(6bits), process number(4bits), empty bits(15bits), state bit(1bit)로 구성되어 있습니다.
 	// 상태 비트(state bit)로 프레임 사용 여부를 구분합니다.
-	for (int i = 0; i < 0x400; i++) {
+	for (int i = 0; i < 0x1000; i++) {
 		if ((frameList[i] & 0x1) == 0) {
 			if (option == 0)// 메모리에서 비어있는 프레임을 찾을 경우, 프리 프레임 리스트의 크기를 줄입니다.
 				memFrameListSize--;
@@ -801,10 +803,10 @@ int searchFreeFrame(int* frameList, int option) {
 */
 int searchLRUPage(int* frameList) {
 	int LRUPage = 0;
-	int LRUCount = 9999999;
+	int LRUCount = 999999999;
 
-	// 프리 프레임 리스트는 LV1 page number(5bits), LV2 page number(5bits), process number(4bits), empty bits(17bits), state bit(1bit)로 구성되어 있습니다.	
-	for (int i = 0; i < 0x400; i++) {
+	// 프리 프레임 리스트는 LV1 page number(6bits), LV2 page number(6bits), process number(4bits), empty bits(15bits), state bit(1bit)로 구성되어 있습니다.	
+	for (int i = 0; i < 0x1000; i++) {
 		if ((frameList[i] & 0x1) == 1) {
 			if (LRU[i] < LRUCount) {
 				LRUPage = i;
@@ -860,20 +862,20 @@ void allocForSchedulingPolicy(void) {
 * void allocForSchedulingPolicy(void);
 *	이 함수는 가상 메모리를 구현하는데 필요한 메모리, 디스크 등을 동적 할당합니다.
 *	
-*	메모리 크기: 1MB
-*	디스크 크기: 1MB
+*	메모리 크기: 4MB
+*	디스크 크기: 4MB
 *	페이지 크기: 1KB
-*	논리 주소를 1레벨 페이지 번호(5비트), 2레벨 페이지 번호(5비트), 변위(10비트)
-*	메모리 속 프리 프레임 리스트 엔트리 개수: 1K(1MB / 1KB)
-*	디스크 속 프리 프레임 리스트 엔트리 개수(스와핑): 1K
+*	논리 주소를 1레벨 페이지 번호(6비트), 2레벨 페이지 번호(6비트), 변위(10비트)
+*	메모리 속 프리 프레임 리스트 엔트리 개수: 4K(4MB / 1KB)
+*	디스크 속 프리 프레임 리스트 엔트리 개수(스와핑): 4K
 */
 void allocForVirtualMemory(void) {
-	MEMORY			= (int*)malloc(sizeof(int) * 0x40000);	// 메모리: 1MB(2^2 * 2^18 = 4bytes * 0x40000)
-	DISK			= (int*)malloc(sizeof(int) * 0x40000);	// 디스크: 1MB(2^2 * 2^18 = 4bytes * 0x40000)
-	LRU				= (int*)malloc(sizeof(int) * 0x400);	
-	memFrameList	= (int*)malloc(sizeof(int) * 0x400);	// 메모리 프레임 리스트: 1K(2^10) 배열
-	diskFrameList	= (int*)malloc(sizeof(int) * 0x400);	// 디스크 프레임 리스트: 1K(2^10) 배열
-	memFrameListSize = 0x400;								// 프레임 리스트 크기: 1024 숫자
+	MEMORY			= (int*)malloc(sizeof(int) * 0x100000);	// 메모리: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
+	DISK			= (int*)malloc(sizeof(int) * 0x100000);	// 디스크: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
+	LRU				= (int*)malloc(sizeof(int) * 0x1000);	
+	memFrameList	= (int*)malloc(sizeof(int) * 0x1000);	// 메모리 프레임 리스트: 4K(2^12) 배열
+	diskFrameList	= (int*)malloc(sizeof(int) * 0x1000);	// 디스크 프레임 리스트: 4K(2^12) 배열
+	memFrameListSize = 0x1000;								// 프레임 리스트 크기: 4096 숫자
 
 	// 동적 할당한 메모리를 초기화합니다.
 	memset(memFrameList, 0, malloc_usable_size(memFrameList));
@@ -882,26 +884,26 @@ void allocForVirtualMemory(void) {
 	memset(DISK, 0, malloc_usable_size(DISK));
 	memset(LRU, 0, malloc_usable_size(LRU));
 
-	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);			// 1레벨 페이지 테이블: (테이블 크기) * 10
-	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x400);	// 2레벨 페이지 테이블: (테이블 크기) * 10 * 2^10
+	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);				// 1레벨 페이지 테이블: (테이블 크기) * 10
+	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	// 2레벨 페이지 테이블: (테이블 크기) * 10 * 2^12
 
 	// 1레벨 페이지 테이블 동적 할당(5bits)
 	for (int i = 0; i < 10; i++) {
-		LV1Table[i].tableNumber = malloc(sizeof(int) * 0x20);
-		LV1Table[i].validBit = malloc(sizeof(int) * 0x20);
-		for (int t = 0; t < 0x20; t++) {
+		LV1Table[i].tableNumber = malloc(sizeof(int) * 0x40);
+		LV1Table[i].validBit = malloc(sizeof(int) * 0x40);
+		for (int t = 0; t < 0x40; t++) {
 			LV1Table[i].tableNumber[t] = 0;
 			LV1Table[i].validBit[t] = 0;
 		}
 	}
 
 	// 2레벨 페이지 테이블 동적 할당(5bits)
-	for (int i = 0; i < 0x2800; i++) {						
-		LV2Table[i].frameNumber = malloc(sizeof(int) * 0x20);
-		LV2Table[i].presentBit = malloc(sizeof(int) * 0x20);
-		LV2Table[i].validBit = malloc(sizeof(int) * 0x20);
+	for (int i = 0; i < 0xA000; i++) {						
+		LV2Table[i].frameNumber = malloc(sizeof(int) * 0x40);
+		LV2Table[i].presentBit = malloc(sizeof(int) * 0x40);
+		LV2Table[i].validBit = malloc(sizeof(int) * 0x40);
 		LV2Table[i].stateBit = 0;
-		for (int t = 0; t < 0x20; t++) {
+		for (int t = 0; t < 0x40; t++) {
 			LV2Table[i].frameNumber[t] = 0;
 			LV2Table[i].validBit[t] = 0;
 			LV2Table[i].presentBit[t] = 0;
@@ -938,7 +940,7 @@ void freeForVirtualMemory(void) {
 		free(LV1Table[i].validBit);
 	}
 	// 2레벨 페이지 테이블을 해제합니다.
-	for (int i = 0; i < 0x2800; i++) {
+	for (int i = 0; i < 0xA000; i++) {
 		free(LV2Table[i].frameNumber);
 		free(LV2Table[i].presentBit);
 		free(LV2Table[i].validBit);
