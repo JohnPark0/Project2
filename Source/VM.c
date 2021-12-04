@@ -763,7 +763,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 int searchFreeLV2PageTable(Table* LV2Table) {
 	int LV2PageTableNumber = 0;
 
-	for (int i = 0; i < 0xA000; i++) {// 2레벨 페이지 테이블 수: 40960(0xA000)
+	for (int i = 0; i < 0x280; i++) {// 2레벨 페이지 테이블 수: 640(0x280)
 		if (LV2Table[LV2PageTableNumber].stateBit == 0) {
 			LV2Table[LV2PageTableNumber].stateBit = 1;
 			break;
@@ -885,8 +885,8 @@ void allocForVirtualMemory(void) {
 	// 1레벨 페이지 테이블: (테이블 크기) * (사용자 프로세스) = sizeof(Table) * 10
 	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);
 	
-	// 2레벨 페이지 테이블: (테이블 크기) * (사용자 프로세스) * (1레벨 페이지 테이블 엔트리 수) * (2레벨 페이지 테이블 엔트리 수) = sizeof(Table) * 10 * 64 * 64
-	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);
+	// 2레벨 페이지 테이블: (테이블 크기) * (사용자 프로세스) * (1레벨 페이지 테이블 엔트리 수) = sizeof(Table) * 10 * 64
+	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x40);
 
 	// 1레벨 페이지 테이블 동적 할당(6bits)
 	for (int i = 0; i < 10; i++) {
@@ -899,7 +899,7 @@ void allocForVirtualMemory(void) {
 	}
 
 	// 2레벨 페이지 테이블 동적 할당(6bits)
-	for (int i = 0; i < 0xA000; i++) {
+	for (int i = 0; i < 0x280; i++) {
 		LV2Table[i].frameNumber = malloc(sizeof(int) * 0x40);
 		LV2Table[i].presentBit = malloc(sizeof(int) * 0x40);
 		LV2Table[i].validBit = malloc(sizeof(int) * 0x40);
@@ -941,7 +941,7 @@ void freeForVirtualMemory(void) {
 		free(LV1Table[i].validBit);
 	}
 	// 2레벨 페이지 테이블을 해제합니다.
-	for (int i = 0; i < 0xA000; i++) {
+	for (int i = 0; i < 0x280; i++) {
 		free(LV2Table[i].frameNumber);
 		free(LV2Table[i].presentBit);
 		free(LV2Table[i].validBit);
