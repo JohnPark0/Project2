@@ -90,7 +90,7 @@ void pMsgRcvIOCPU(int procNum, Node* node);
 void cMsgSndMemAccess(int procNum, int* cLogicalAddress);
 void pMsgRcvMemAccess(int procNum, int* pLogicalAddress);
 
-/*  */
+/* 2레벨 페이징과 스와핑이 적용된 가상 메모리를 관리하는 함수 */
 int MMU(int* pLogicalAddress, int procNum);
 int searchFreeLV2PageTable(Table* LV2Table);
 int searchFreeFrame(int* frameList, int option);
@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) {
 	// 메시지 큐를 생성할 키 값을 저장합니다.
 	for (int i = 0; i < MAX_PROCESS; i++) {
 		// 논리 주소를 주고받을 메시지 큐의 키 값은 0x6123의 배수입니다.
-		KEY[i] = 0x6123 * (i + 1); 
+		KEY[i] = 0x6123 * (i + 1);
 		msgctl(msgget(KEY[i], IPC_CREAT | 0666), IPC_RMID, NULL);
 
 		// 입출력 시간을 주고받을 메시지 큐의 키 값은 0x3216의 배수입니다.
@@ -252,7 +252,7 @@ int main(int argc, char* argv[]) {
 				for (int i = 0; i < 10; i++) {
 					int temp = rand();
 					srand(time(NULL) + temp);
-					cLogicalAddress[i] = rand() % 0x80000;		//프로세스 메모리 (512KB(0x8:0000) = 512 * 1024)
+					cLogicalAddress[i] = rand() % 0x80000;// 프로세스 최대 사용 메모리: 512KB(512 * 2^10bytes)
 				}
 
 				// 생성한 논리 주소를 메시지 큐에 보냅니다.
@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
 					BurstCycle = BurstCycle > 298 ? 1 : BurstCycle;
 					kill(ppid, SIGUSR2);
 				}
-				
+
 				// 자식 프로세스는 다음 틱이 발생할 때까지 기다립니다.
 				kill(getpid(), SIGSTOP);
 			}
@@ -299,7 +299,6 @@ int main(int argc, char* argv[]) {
 	for (int i = 0; i < MAX_PROCESS; i++) {
 		kill(CPID[i], SIGKILL);
 	}
-
 	writeNode(readyQueue, waitQueue, cpuRunNode, wpburst);
 
 	// 동적 할당받은 메모리를 모두 해제합니다.
@@ -316,7 +315,7 @@ int main(int argc, char* argv[]) {
 void signalTimeTick(int signo) { /* SIGALRM */
 	if (RUN_TIME == 0)
 		return;
-	
+
 	// ScheduleDump.txt 파일에 현재 상황을 기록합니다.
 	writeNode(readyQueue, waitQueue, cpuRunNode, wpburst);
 
@@ -341,7 +340,7 @@ void signalTimeTick(int signo) { /* SIGALRM */
 		// IO 작업이 끝난 경우, 준비 큐로 노드를 보냅니다.
 		if (ioRunNode->ioTime == 0)
 			pushBackNode(readyQueue, ioRunNode->procNum, ioRunNode->cpuTime, ioRunNode->ioTime);
-		
+
 		// IO 작업이 남아있는 경우, 대기 큐로 노드를 보냅니다.
 		else
 			pushBackNode(waitQueue, ioRunNode->procNum, ioRunNode->cpuTime, ioRunNode->ioTime);
@@ -396,10 +395,10 @@ void signalIOSchedIn(int signo) { /* SIGUSR2 */
 	/* 스케줄링 정책 부분 */
 	if (cpuRunNode->ioTime == 0)// 프로세스가 IO 작업이 없는 경우, 준비 큐의 끝으로 들어갑니다.
 		pushBackNode(readyQueue, cpuRunNode->procNum, cpuRunNode->cpuTime, cpuRunNode->ioTime);
-	
+
 	else// 프로세스가 IO 작업이 없는 경우, 대기 큐의 끝으로 들어갑니다.
 		pushBackNode(waitQueue, cpuRunNode->procNum, cpuRunNode->cpuTime, cpuRunNode->ioTime);
-	
+
 	// 준비 큐에서 다음으로 실행할 프로세스를 선택합니다.
 	popFrontNode(readyQueue, cpuRunNode);
 	TICK_COUNT = 0;
@@ -526,7 +525,6 @@ void cMsgSndMemAccess(int procNum, int* cLogicalAddress) {
 
 	struct msgBufMemAccess msg;
 	memset(&msg, 0, sizeof(msg));
-
 	msg.mtype = 1;
 
 	// 매개 변수의 논리 주소를 구조체에 저장합니다.
@@ -649,7 +647,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 		fprintf(wpmemory, " %d번째 논리 주소 0x%x\n", i, logicalAddress);
 
 		/* Step 0. 스왑 아웃 */
-		if (memFrameListSize < 0x100) {// 메모리 3840 이상을 사용할 경우, 스왑 아웃이 발생합니다.
+		if (memFrameListSize < 0x100) {// 메모리 3840(4096 - 256) 이상을 사용할 경우, 스왑 아웃이 발생합니다.
 			fprintf(wpmemory, " 스왑 아웃 [o] ");
 			LRUpage = searchLRUPage(memFrameList);// 가장 적게 사용한 페이지를 찾습니다.
 			LV1PageNumber = (memFrameList[LRUpage] >> 26) & 0x3F;
@@ -669,9 +667,9 @@ int MMU(int* pLogicalAddress, int procNum) {
 			fprintf(wpmemory, " 스왑 아웃 [x]\n");
 
 		/* Step 1: 논리 주소를 1레벨 페이지 번호(6비트), 2레벨 페이지 번호(6비트), 그리고 변위(10비트)로 구분합니다. */
-		LV1PageNumber	= (logicalAddress >> 16) & 0x3F;
-		LV2PageNumber	= (logicalAddress >> 10) & 0x3F;
-		offset			= logicalAddress & 0x3FF;		
+		LV1PageNumber = (logicalAddress >> 16) & 0x3F;
+		LV2PageNumber = (logicalAddress >> 10) & 0x3F;
+		offset = logicalAddress & 0x3FF;
 
 		/* Step 2: 1레벨 페이지 폴트 */
 		if (LV1Table[procNum].validBit[LV1PageNumber] == 0) {
@@ -705,7 +703,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 			LV2Table[LV2TableNumber].validBit[LV2PageNumber] = 1;
 
 			// 메모리 프리 프레임 리스트에 1레벨 페이지 테이블 번호, 2레벨 페이지 테이블 번호, 프로세스 번호를 저장합니다.
-			// 프리 프레임 리스트 항목은 LV1 page number(5bits), LV2 page number(5bits), process number(4bits), empty bits(17bits), valid bit(1bit)로 구성되어 있습니다.	
+			// 프리 프레임 리스트 항목은 LV1 page number(6bits), LV2 page number(6bits), process number(4bits), empty bits(15bits), valid bit(1bit)로 구성되어 있습니다.	
 			memFrameList[frameNumber] += ((LV1PageNumber & 0x3F) << 26);
 			memFrameList[frameNumber] += ((LV2PageNumber & 0x3F) << 20);
 			memFrameList[frameNumber] += ((procNum & 0xF) << 16);
@@ -722,7 +720,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 				diskAddress = LV2Table[LV2TableNumber].frameNumber[LV2PageNumber];// 디스크에 저장된 페이지를 불러옵니다.
 				copyPage(MEMORY, frameNumber, memFrameList, DISK, diskAddress, diskFrameList);
 				fprintf(wpmemory, "(디스크[0x%x - 0x%x] ▶ 메모리[0x%x - 0x%x])\n", diskAddress * 0x400, ((diskAddress + 1) * 0x400) - 1, frameNumber * 0x400, ((frameNumber + 1) * 0x400) - 1);
-				
+
 				LV2Table[LV2TableNumber].presentBit[LV2PageNumber] = 0;
 				LV2Table[LV2TableNumber].frameNumber[LV2PageNumber] = frameNumber;
 
@@ -765,7 +763,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 int searchFreeLV2PageTable(Table* LV2Table) {
 	int LV2PageTableNumber = 0;
 
-	for (int i = 0; i < 0xA000; i++) {//Tatal LV2 Table : 40960(0xA000)
+	for (int i = 0; i < 0xA000; i++) {// 2레벨 페이지 테이블 수: 40960(0xA000)
 		if (LV2Table[LV2PageTableNumber].stateBit == 0) {
 			LV2Table[LV2PageTableNumber].stateBit = 1;
 			break;
@@ -861,7 +859,7 @@ void allocForSchedulingPolicy(void) {
 /*
 * void allocForSchedulingPolicy(void);
 *	이 함수는 가상 메모리를 구현하는데 필요한 메모리, 디스크 등을 동적 할당합니다.
-*	
+*
 *	메모리 크기: 4MB
 *	디스크 크기: 4MB
 *	페이지 크기: 1KB
@@ -870,12 +868,12 @@ void allocForSchedulingPolicy(void) {
 *	디스크 속 프리 프레임 리스트 엔트리 개수(스와핑): 4K
 */
 void allocForVirtualMemory(void) {
-	MEMORY			= (int*)malloc(sizeof(int) * 0x100000);	// 메모리: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
-	DISK			= (int*)malloc(sizeof(int) * 0x100000);	// 디스크: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
-	LRU				= (int*)malloc(sizeof(int) * 0x1000);	
-	memFrameList	= (int*)malloc(sizeof(int) * 0x1000);	// 메모리 프레임 리스트: 4K(2^12) 배열
-	diskFrameList	= (int*)malloc(sizeof(int) * 0x1000);	// 디스크 프레임 리스트: 4K(2^12) 배열
-	memFrameListSize = 0x1000;								// 프레임 리스트 크기: 4096 숫자
+	MEMORY = (int*)malloc(sizeof(int) * 0x100000);		// 메모리: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
+	DISK = (int*)malloc(sizeof(int) * 0x100000);		// 디스크: 4MB(2^2 * 2^20 = 4bytes * 0x10:0000)
+	LRU = (int*)malloc(sizeof(int) * 0x1000);
+	memFrameList = (int*)malloc(sizeof(int) * 0x1000);	// 메모리 프레임 리스트: 4K(2^12) 배열
+	diskFrameList = (int*)malloc(sizeof(int) * 0x1000);	// 디스크 프레임 리스트: 4K(2^12) 배열
+	memFrameListSize = 0x1000;							// 프레임 리스트 크기: 4096 숫자
 
 	// 동적 할당한 메모리를 초기화합니다.
 	memset(memFrameList, 0, malloc_usable_size(memFrameList));
@@ -884,10 +882,13 @@ void allocForVirtualMemory(void) {
 	memset(DISK, 0, malloc_usable_size(DISK));
 	memset(LRU, 0, malloc_usable_size(LRU));
 
-	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);				// 1레벨 페이지 테이블: (테이블 크기) * 10
-	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);	// 2레벨 페이지 테이블: (테이블 크기) * 10 * 2^12
+	// 1레벨 페이지 테이블: (테이블 크기) * (사용자 프로세스) = sizeof(Table) * 10
+	LV1Table = (Table*)malloc(sizeof(Table) * 0xA);
+	
+	// 2레벨 페이지 테이블: (테이블 크기) * (사용자 프로세스) * (1레벨 페이지 테이블 엔트리 수) * (2레벨 페이지 테이블 엔트리 수) = sizeof(Table) * 10 * 64 * 64
+	LV2Table = (Table*)malloc(sizeof(Table) * 0xA * 0x1000);
 
-	// 1레벨 페이지 테이블 동적 할당(5bits)
+	// 1레벨 페이지 테이블 동적 할당(6bits)
 	for (int i = 0; i < 10; i++) {
 		LV1Table[i].tableNumber = malloc(sizeof(int) * 0x40);
 		LV1Table[i].validBit = malloc(sizeof(int) * 0x40);
@@ -897,8 +898,8 @@ void allocForVirtualMemory(void) {
 		}
 	}
 
-	// 2레벨 페이지 테이블 동적 할당(5bits)
-	for (int i = 0; i < 0xA000; i++) {						
+	// 2레벨 페이지 테이블 동적 할당(6bits)
+	for (int i = 0; i < 0xA000; i++) {
 		LV2Table[i].frameNumber = malloc(sizeof(int) * 0x40);
 		LV2Table[i].presentBit = malloc(sizeof(int) * 0x40);
 		LV2Table[i].validBit = malloc(sizeof(int) * 0x40);
