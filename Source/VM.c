@@ -737,7 +737,7 @@ int MMU(int* pLogicalAddress, int procNum) {
 			// LRU를 업데이트합니다.
 			LRU[frameNumber]++;
 		}
-		fprintf(wpmemory, " %d번째 물리주소 0x%x ", i, ((frameNumber) * 0x400) + offset);
+		fprintf(wpmemory, " %d번째 물리주소 0x%x ", i, ((frameNumber) * 0x400) + offset - (offset % 4));
 
 		/* Step 4: 주소 변환과 메모리 접근 */
 		// 프레임 번호와 변위로 물리 주소를 구합니다. 물리주소는 data(31bits), modified bit(1bit)로 구성되어 있습니다.
